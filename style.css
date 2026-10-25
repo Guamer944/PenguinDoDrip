@@ -243,3 +243,45 @@ body.editing main { margin-right: 320px; }
 #ed-panel .hint { opacity: 0.7; line-height: 1.4; }
 #ed-panel .card-form { border: 1.5px solid #ccc; padding: 8px; margin-bottom: 10px; }
 #ed-panel .mini { width: 52px; height: 40px; object-fit: cover; border: 1px solid #000; }
+
+/* Media frames (images, GIFs, videos on the canvas) */
+.media-frame { position: relative; width: 100%; height: 100%; overflow: hidden; border-radius: inherit; }
+.media-frame > * { will-change: transform; }
+
+/* Crop preview in the panel: checkerboard shows empty space */
+#ed-panel .crop-box {
+  position: relative;
+  width: 100%;
+  overflow: hidden;
+  border: 2px solid var(--ink);
+  background: repeating-conic-gradient(#ddd 0 25%, #fff 0 50%) 0 0 / 16px 16px;
+  cursor: grab;
+  touch-action: none;
+}
+#ed-panel .crop-box:active { cursor: grabbing; }
+#ed-panel .crop-inner { position: absolute; inset: 0; pointer-events: none; }
+
+/* Browser tab mock-up */
+#ed-panel .fake-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border: 1.5px solid #333;
+  border-radius: 8px 8px 0 0;
+  background: #f1f1f1;
+  max-width: 100%;
+}
+#ed-panel .fake-tab img { width: 16px; height: 16px; object-fit: contain; }
+#ed-panel .fake-tab span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 0.85rem; }
+
+/* Share card mock-up */
+#ed-panel .share-preview {
+  border: 1.5px solid #ccc;
+  padding: 8px;
+  display: grid;
+  gap: 4px;
+  margin: 6px 0;
+}
+#ed-panel .share-preview img { width: 100%; aspect-ratio: 1200 / 630; object-fit: cover; border: 1px solid #000; }
+#ed-panel .share-preview span { font-size: 0.8rem; opacity: 0.75; }
