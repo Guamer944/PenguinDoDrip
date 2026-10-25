@@ -11,7 +11,7 @@
    visitors; it is not a bank vault. Your real protection is who can push to the repo.
    ============================================================ */
 const CONFIG = {
-  ownerHash: "a341b49baa4f057c9397e19e22c20969a77952f6ea6957bf04a36558ae99e4c1",
+  ownerHash: "a341b49baa4f057c9397e19e22c20969a77952f6ea6957bf04a36558ae99e4c1",",
   draftKey: "animator-portfolio-draft-v1",
   maxHistory: 100,
 };
@@ -25,6 +25,11 @@ const FONTS = [
 ];
 
 const ASPECTS = ["16 / 10", "4 / 3", "16 / 9", "1 / 1", "3 / 4"];
+const FRAME_ASPECTS = ["auto", "1 / 1", "4 / 3", "3 / 4", "16 / 9", "9 / 16", "5 / 4"];
+const MEDIA_DEFAULTS = {
+  fit: "cover", aspect: "auto", panX: 0, panY: 0, zoom: 1,
+  bg: "transparent", autoplay: true, loop: true, muted: true,
+};
 
 // Placeholder art so the sample site looks alive before you add your own work.
 const ph = (label, bg = "#ffd166", fg = "#1d1d1d") =>
@@ -33,6 +38,14 @@ const ph = (label, bg = "#ffd166", fg = "#1d1d1d") =>
 
 /* CONTENT:START */
 const CONTENT = {
+  identity: {
+    title: "Your Name — Animator",
+    description: "Animator portfolio: loops, characters and frame-by-frame chaos.",
+    favicon: "",
+    shareImage: "",
+    shareTitle: "",
+    shareDescription: "",
+  },
   site: { title: "Your Name — Animator", name: "Your Name" },
   theme: { bg: "#f6efe2", ink: "#1d1d1d", accent: "#ff5a36" },
   canvasAspect: "16 / 10",
@@ -72,6 +85,7 @@ const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) =>
 const uid = (p) => p + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 const findItem = (id) => C.canvas.find((i) => i.id === id);
 const elOf = (id) => document.querySelector(`#canvas .item[data-id="${id}"]`);
+const isMediaKind = (k) => k === "image" || k === "sticker" || k === "video";
 
 async function sha256(text) {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
@@ -96,8 +110,39 @@ let editing = false;
 let selectedId = null;
 let currentTab = "canvas";
 let gesture = null;
+let cropDrag = null;
 let pendingUpload = null;
 const hist = { stack: [], i: -1 };
+
+/* ============================================================
+   MEDIA (images, GIFs, stickers, videos)
+   Pan/zoom/fit live in item.media. The file itself is never changed,
+   so GIF animation and video playback are preserved.
+   ============================================================ */
+const mediaOf = (item) => ({ ...MEDIA_DEFAULTS, ...(item.media || {}) });
+
+function mediaTransform(m) {
+  return `translate(${m.panX}%, ${m.panY}%) scale(${m.zoom})`;
+}
+
+function mediaInnerHTML(item, forceFrame = false) {
+  const m = mediaOf(item);
+  const h = forceFrame || m.aspect !== "auto" ? "100%" : "auto";
+  const style = `display:block;width:100%;height:${h};object-fit:${m.fit};` +
+                `transform:${mediaTransform(m)};transform-origin:center;pointer-events:none;`;
+  if (item.kind === "video") {
+    return `<video src="${esc(item.src)}" style="${style}" ${m.autoplay ? "autoplay" : ""} ${m.loop ? "loop" : ""} ${m.muted ? "muted" : ""} playsinline></video>`;
+  }
+  return `<img src="${esc(item.src)}" alt="${esc(item.alt || "")}" draggable="false" style="${style}">`;
+}
+
+// Update just the transform (cheap, no video restart) while dragging a crop.
+function applyMediaTransform(item) {
+  const t = mediaTransform(mediaOf(item));
+  document
+    .querySelectorAll(`#canvas .item[data-id="${item.id}"] .media-frame > *, #crop-box .crop-inner > *`)
+    .forEach((n) => { n.style.transform = t; });
+}
 
 /* ============================================================
    RENDERING (shared by public site and owner mode)
@@ -120,8 +165,10 @@ function itemEl(item) {
   el.dataset.id = item.id;
   applyGeometry(el, item);
   el.style.border = s.border || "none";
+  el.style.borderRadius = s.radius || "0";
   el.style.boxShadow = s.shadow ? "6px 8px 0 #1d1d1d" : "none";
   el.style.background = s.bg || "transparent";
+  el.style.opacity = s.opacity === undefined ? 1 : s.opacity;
 
   if (item.kind === "text") {
     el.textContent = item.text;
@@ -133,10 +180,14 @@ function itemEl(item) {
     el.style.padding = "0.2em 0.4em";
   } else if (item.kind === "button") {
     el.innerHTML = `<a class="btn" href="${esc(item.href || "#")}" style="font-size:${scaledPx(s.fontSize || 22)}">${esc(item.text)}</a>`;
-  } else if (item.kind === "video") {
-    el.innerHTML = `<video src="${esc(item.src)}" autoplay muted loop playsinline></video>`;
   } else {
-    el.innerHTML = `<img src="${esc(item.src)}" alt="${esc(item.alt || "")}" draggable="false">`;
+    const m = mediaOf(item);
+    el.style.aspectRatio = m.aspect === "auto" ? "" : m.aspect;
+    const frame = document.createElement("div");
+    frame.className = "media-frame";
+    frame.style.background = m.bg;
+    frame.innerHTML = mediaInnerHTML(item);
+    el.appendChild(frame);
   }
   return el;
 }
@@ -171,12 +222,43 @@ function wireCardHover() {
   });
 }
 
+// Sets the real favicon, description and share tags. Visitors get these from C
+// (the published content), so the preview and the live site can't drift apart.
+function setMeta(attr, key, value) {
+  if (!value) return;
+  let m = document.querySelector(`meta[${attr}="${key}"]`);
+  if (!m) {
+    m = document.createElement("meta");
+    m.setAttribute(attr, key);
+    document.head.append(m);
+  }
+  m.content = value;
+}
+
+function applyIdentity() {
+  const id = C.identity;
+  document.title = id.title || C.site.title;
+  setMeta("name", "description", id.description);
+  setMeta("property", "og:title", id.shareTitle || id.title);
+  setMeta("property", "og:description", id.shareDescription || id.description);
+  setMeta("property", "og:image", id.shareImage);
+  if (id.favicon) {
+    let link = document.querySelector('link[rel="icon"]');
+    if (!link) {
+      link = document.createElement("link");
+      link.rel = "icon";
+      document.head.append(link);
+    }
+    link.href = id.favicon;
+  }
+}
+
 function renderPage() {
   const st = document.documentElement.style;
   st.setProperty("--bg", C.theme.bg);
   st.setProperty("--ink", C.theme.ink);
   st.setProperty("--accent", C.theme.accent);
-  document.title = C.site.title;
+  applyIdentity();
   $("#site-name").textContent = C.site.name;
   $("#year").textContent = new Date().getFullYear();
 
@@ -254,7 +336,7 @@ function updateToolbar() {
 }
 
 /* ============================================================
-   POINTER GESTURES: move, resize, rotate (mouse + touch)
+   POINTER GESTURES: move, resize, rotate (canvas) + crop pan (panel)
    ============================================================ */
 function onCanvasDown(e) {
   if (!editing) return;
@@ -282,7 +364,29 @@ function onCanvasDown(e) {
   };
 }
 
+// Dragging inside the crop preview pans the picture within its frame.
+function onPanelDown(e) {
+  const box = e.target.closest("#crop-box");
+  if (!box) return;
+  const it = findItem(selectedId);
+  if (!it) return;
+  e.preventDefault();
+  const m = mediaOf(it);
+  cropDrag = { item: it, box, sx: e.clientX, sy: e.clientY, ox: m.panX, oy: m.panY, moved: false };
+}
+
 function onMove(e) {
+  if (cropDrag) {
+    const c = cropDrag;
+    const r = c.box.getBoundingClientRect();
+    const m = mediaOf(c.item);
+    m.panX = r1(c.ox + ((e.clientX - c.sx) / r.width) * 100);
+    m.panY = r1(c.oy + ((e.clientY - c.sy) / r.height) * 100);
+    c.item.media = m;
+    c.moved = true;
+    applyMediaTransform(c.item);
+    return;
+  }
   if (!gesture) return;
   const g = gesture;
   const dx = e.clientX - g.sx;
@@ -303,6 +407,12 @@ function onMove(e) {
 }
 
 function onUp() {
+  if (cropDrag) {
+    const moved = cropDrag.moved;
+    cropDrag = null;
+    if (moved) commit(true);
+    return;
+  }
   if (!gesture) return;
   const moved = gesture.moved;
   gesture = null;
@@ -360,7 +470,9 @@ function moveIn(arr, i, dir) {
 function askFile(p) {
   pendingUpload = p;
   const inp = $("#file-input");
-  inp.accept = p.field === "thumb" ? "image/*" : "image/*,video/*";
+  inp.accept =
+    p.field === "preview" || p.mode === "replace" || p.mode === "add" ? "image/*,video/*" :
+    p.field === "favicon" ? "image/*,.ico" : "image/*";
   inp.click();
 }
 
@@ -391,8 +503,11 @@ async function onFile(e) {
     it.src = url;
     if (kind === "video") it.kind = "video";
     else if (it.kind === "video") it.kind = "image";
+    it.media = { ...mediaOf(it), panX: 0, panY: 0, zoom: 1 }; // new file starts uncropped
   } else if (p.mode === "project") {
     C.projects[p.index][p.field] = url;
+  } else if (p.mode === "identity") {
+    C.identity[p.field] = url;
   }
   commit(true);
 }
@@ -408,16 +523,62 @@ function canvasHint() {
     ${layers.map((i) => `<div class="row"><button data-act="select" data-id="${i.id}">${esc(i.kind)}${i.locked ? " 🔒" : ""}: ${esc((i.text || "").slice(0, 18))}</button></div>`).join("") || "<p>Nothing yet. Use the toolbar to add stuff.</p>"}`;
 }
 
+function cropEditor(it) {
+  const m = mediaOf(it);
+  const ratio = m.aspect === "auto" ? "4 / 3" : m.aspect;
+  return `
+    <div class="crop-wrap">
+      <h4>Crop &amp; position</h4>
+      <div id="crop-box" class="crop-box" style="aspect-ratio:${ratio}" title="drag to reposition">
+        <div class="crop-inner">${mediaInnerHTML(it, true)}</div>
+      </div>
+      <p class="hint">Drag the picture inside the frame to choose what's visible. Your file isn't changed.</p>
+      <label>Zoom
+        <input type="range" min="1" max="4" step="0.05" data-target="item" data-key="media.zoom" value="${m.zoom}">
+      </label>
+      <div class="row">
+        <label>Pan X %<input type="number" step="1" data-target="item" data-key="media.panX" value="${m.panX}"></label>
+        <label>Pan Y %<input type="number" step="1" data-target="item" data-key="media.panY" value="${m.panY}"></label>
+      </div>
+      <div class="row"><button data-act="crop-reset">reset crop</button></div>
+    </div>`;
+}
+
+function mediaControls(it) {
+  const m = mediaOf(it);
+  const t = 'data-target="item"';
+  const fits = [["cover", "fill frame (cover)"], ["contain", "fit inside (contain)"], ["fill", "stretch (fill)"], ["none", "original size"]];
+  return `
+    <h4>Frame &amp; picture</h4>
+    <label>Frame shape (aspect ratio)
+      <input list="aspect-list" ${t} data-key="media.aspect" value="${esc(m.aspect)}">
+    </label>
+    <datalist id="aspect-list">${FRAME_ASPECTS.map((a) => `<option value="${a}">`).join("")}</datalist>
+    <label>Picture fit
+      <select ${t} data-key="media.fit">${fits.map(([v, l]) =>
+        `<option value="${v}" ${m.fit === v ? "selected" : ""}>${l}</option>`).join("")}</select>
+    </label>
+    <label>Empty-space background (for "fit inside")
+      <input ${t} data-key="media.bg" value="${esc(m.bg)}">
+    </label>
+    ${it.kind === "video" ? `
+      <label><input type="checkbox" ${t} data-key="media.autoplay" ${m.autoplay ? "checked" : ""}> Autoplay</label>
+      <label><input type="checkbox" ${t} data-key="media.loop" ${m.loop ? "checked" : ""}> Loop</label>
+      <label><input type="checkbox" ${t} data-key="media.muted" ${m.muted ? "checked" : ""}> Muted</label>` : ""}`;
+}
+
 function itemForm(it) {
   const s = it.style || {};
   const t = 'data-target="item"';
   const isText = it.kind === "text";
   const isBtn = it.kind === "button";
-  const isMedia = it.kind === "image" || it.kind === "sticker" || it.kind === "video";
+  const isMedia = isMediaKind(it.kind);
   const color = /^#[0-9a-f]{6}$/i.test(s.color || "") ? s.color : "#1d1d1d";
 
   return `
     <h3>selected: ${esc(it.kind)}</h3>
+    ${isMedia ? cropEditor(it) : ""}
+    ${isMedia ? mediaControls(it) : ""}
     ${isText ? `<label>Text<textarea rows="3" ${t} data-key="text">${esc(it.text)}</textarea></label>` : ""}
     ${isBtn ? `<label>Button label<input ${t} data-key="text" value="${esc(it.text)}"></label>
                <label>Link<input ${t} data-key="href" value="${esc(it.href)}"></label>` : ""}
@@ -429,8 +590,13 @@ function itemForm(it) {
                    <button data-act="item-replace">replace file</button>
                    <button data-act="item-url">set image URL</button>
                  </div>` : ""}
+    <h4>Size, position &amp; look</h4>
     <label>Width (% of canvas)<input type="number" step="1" ${t} data-key="w" value="${it.w}"></label>
     <label>Rotation (degrees)<input type="number" step="1" ${t} data-key="rot" value="${it.rot || 0}"></label>
+    <label>Opacity
+      <input type="range" min="0" max="1" step="0.05" ${t} data-key="style.opacity" value="${s.opacity === undefined ? 1 : s.opacity}">
+    </label>
+    <label>Corner radius (CSS, e.g. 12px or 50%)<input ${t} data-key="style.radius" value="${esc(s.radius || "")}"></label>
     ${isText || isBtn ? `<label>Font size (px on a 900px canvas)<input type="number" ${t} data-key="style.fontSize" value="${s.fontSize || (isText ? 32 : 22)}"></label>` : ""}
     ${isText ? `
       <label>Font<select ${t} data-key="style.fontFamily">${FONTS.map((f) =>
@@ -474,10 +640,41 @@ function projectsForm() {
   return `${rows}<button data-act="proj-add">+ add project</button>`;
 }
 
+function identityForm() {
+  const id = C.identity;
+  const tabTitle = id.title || C.site.title;
+  return `
+    <h4>Browser tab preview</h4>
+    <div class="fake-tab">
+      <img src="${esc(id.favicon || ph("A", "#1d1d1d", "#fff"))}" alt="">
+      <span>${esc(tabTitle)}</span>
+    </div>
+    <div class="row">
+      <button data-act="id-favicon">upload favicon</button>
+      ${id.favicon ? `<button data-act="id-favicon-clear">remove</button>` : ""}
+    </div>
+    <p class="hint">Square PNG, 512×512 ideal (ICO and SVG also work). The browser shrinks it for you.</p>
+    <label>Browser tab title<input data-target="site" data-key="identity.title" value="${esc(id.title)}"></label>
+    <label>Search description<textarea rows="2" data-target="site" data-key="identity.description">${esc(id.description)}</textarea></label>
+
+    <h4>Share preview (chat / social links)</h4>
+    <div class="share-preview">
+      ${id.shareImage ? `<img src="${esc(id.shareImage)}" alt="">` : `<em>no share image yet</em>`}
+      <strong>${esc(id.shareTitle || id.title)}</strong>
+      <span>${esc(id.shareDescription || id.description)}</span>
+    </div>
+    <div class="row">
+      <button data-act="id-share">upload share image (1200×630)</button>
+      ${id.shareImage ? `<button data-act="id-share-clear">remove</button>` : ""}
+    </div>
+    <label>Share title<input data-target="site" data-key="identity.shareTitle" value="${esc(id.shareTitle)}"></label>
+    <label>Share description<textarea rows="2" data-target="site" data-key="identity.shareDescription">${esc(id.shareDescription)}</textarea></label>
+    <p class="hint">Heads up: link previews in Discord, iMessage and Slack read the static meta tags in index.html, and they can't run JavaScript. Paste the snippet from the reply into index.html once.</p>`;
+}
+
 function siteForm() {
   return `
     <label>Your name (header)<input data-target="site" data-key="site.name" value="${esc(C.site.name)}"></label>
-    <label>Browser tab title<input data-target="site" data-key="site.title" value="${esc(C.site.title)}"></label>
     <label>Background<input type="color" data-target="site" data-key="theme.bg" value="${C.theme.bg}"></label>
     <label>Text colour<input type="color" data-target="site" data-key="theme.ink" value="${C.theme.ink}"></label>
     <label>Accent colour<input type="color" data-target="site" data-key="theme.accent" value="${C.theme.accent}"></label>
@@ -504,6 +701,8 @@ function refreshPanel() {
     body.innerHTML = it ? itemForm(it) : canvasHint();
   } else if (currentTab === "projects") {
     body.innerHTML = projectsForm();
+  } else if (currentTab === "identity") {
+    body.innerHTML = identityForm();
   } else {
     body.innerHTML = siteForm();
   }
@@ -522,14 +721,27 @@ function onPanelChange(e) {
   if (!obj) return;
 
   let v = el.type === "checkbox" ? el.checked
-        : el.type === "number" ? Number(el.value)
+        : (el.type === "number" || el.type === "range") ? Number(el.value)
         : el.value;
-  if (el.type === "number" && Number.isNaN(v)) return;
+  if ((el.type === "number" || el.type === "range") && Number.isNaN(v)) return;
   if (el.dataset.key === "tags") v = v.split(",").map((s) => s.trim()).filter(Boolean);
   if (el.dataset.key === "style.bg" && !String(v).trim()) v = "transparent";
+  if (el.dataset.key === "media.bg" && !String(v).trim()) v = "transparent";
+  if (el.dataset.key === "media.aspect" && !String(v).trim()) v = "auto";
 
   setPath(obj, el.dataset.key, v);
-  commit(false);
+  // Keep the crop preview and canvas in sync when zoom or pan changes.
+  if (t === "item" && el.dataset.key.startsWith("media.")) {
+    const it = findItem(selectedId);
+    if (it) {
+      const el2 = elOf(it.id);
+      if (el2) {
+        el2.querySelector(".media-frame")?.style.setProperty("background", mediaOf(it).bg);
+      }
+      applyMediaTransform(it);
+    }
+  }
+  commit(!el.dataset.key.startsWith("media.zoom") && !el.dataset.key.startsWith("media.pan"));
 }
 
 /* ============================================================
@@ -613,6 +825,15 @@ function act(name, d) {
       if (it) { it.z = minZExcept(it) - 1; commit(true); }
       return;
 
+    case "crop-reset":
+      if (it) { it.media = { ...mediaOf(it), panX: 0, panY: 0, zoom: 1 }; commit(true); }
+      return;
+
+    case "id-favicon": return askFile({ mode: "identity", field: "favicon" });
+    case "id-favicon-clear": C.identity.favicon = ""; return commit(true);
+    case "id-share": return askFile({ mode: "identity", field: "shareImage" });
+    case "id-share-clear": C.identity.shareImage = ""; return commit(true);
+
     case "proj-add":
       C.projects.push({ id: uid("p"), title: "New project", desc: "", thumb: ph("NEW PROJECT", "#b8f2e6"), preview: "", link: "", tags: [] });
       return commit(true);
@@ -670,9 +891,9 @@ async function exportSite() {
   let n = 0;
 
   const extFor = (u) => {
-    const m = u.match(/^data:image\/([a-z+]+);/i);
-    if (!m) return "bin";
-    return m[1].replace("svg+xml", "svg").replace("jpeg", "jpg");
+    const m = u.match(/^data:image\/([a-z0-9+.-]+);/i);
+    if (!m) return "png";
+    return m[1].replace("svg+xml", "svg").replace("x-icon", "ico").replace("vnd.microsoft.icon", "ico").replace("jpeg", "jpg");
   };
   const isPlaceholder = (s) => /^data:image\/svg\+xml;utf8/.test(s);
   const localize = (src, base) => {
@@ -682,11 +903,13 @@ async function exportSite() {
     return name;
   };
 
-  data.canvas.forEach((it) => { it.src = localize(it.src, it.kind); });
+  data.canvas.forEach((it) => { if (it.src) it.src = localize(it.src, it.kind); });
   data.projects.forEach((p, i) => {
     p.thumb = localize(p.thumb, `project${i + 1}-thumb`);
     p.preview = localize(p.preview, `project${i + 1}-preview`);
   });
+  data.identity.favicon = localize(data.identity.favicon, "favicon");
+  data.identity.shareImage = localize(data.identity.shareImage, "share-image");
 
   let source = null;
   try {
@@ -743,6 +966,7 @@ function enterEditor() {
     <div class="tabs">
       <button data-act="tab" data-tab="canvas">canvas</button>
       <button data-act="tab" data-tab="projects">projects</button>
+      <button data-act="tab" data-tab="identity">identity</button>
       <button data-act="tab" data-tab="site">site</button>
     </div>
     <div id="ed-body"></div>`;
@@ -756,6 +980,7 @@ function enterEditor() {
   document.body.append(bar, panel, fileInput);
   document.body.classList.add("editing");
   panel.addEventListener("change", onPanelChange);
+  panel.addEventListener("pointerdown", onPanelDown);
   document.addEventListener("keydown", onKey);
 
   updateSelection();
