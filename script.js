@@ -5,17 +5,17 @@
         await hashPassphrase("your long passphrase here")
    2. Copy the printed hash into ownerHash below and commit.
    3. Visit yoursite.github.io/your-repo/?edit to enter owner mode.
-
+ 
    Honest note: a static site cannot truly hide this. Anyone who can read this file
    can try passphrases offline, so use a LONG passphrase. This keeps out casual
    visitors; it is not a bank vault. Your real protection is who can push to the repo.
    ============================================================ */
 const CONFIG = {
-  ownerHash: "a341b49baa4f057c9397e19e22c20969a77952f6ea6957bf04a36558ae99e4c1",",
+  ownerHash: "a341b49baa4f057c9397e19e22c20969a77952f6ea6957bf04a36558ae99e4c1",
   draftKey: "animator-portfolio-draft-v1",
   maxHistory: 100,
 };
-
+ 
 const FONTS = [
   { label: "Handwritten", value: "'Brush Script MT','Segoe Script',cursive" },
   { label: "Friendly sans", value: "'Trebuchet MS',Verdana,sans-serif" },
@@ -23,19 +23,27 @@ const FONTS = [
   { label: "Mono", value: "'Courier New',monospace" },
   { label: "Poster", value: "Impact,'Arial Black',sans-serif" },
 ];
-
+ 
 const ASPECTS = ["16 / 10", "4 / 3", "16 / 9", "1 / 1", "3 / 4"];
 const FRAME_ASPECTS = ["auto", "1 / 1", "4 / 3", "3 / 4", "16 / 9", "9 / 16", "5 / 4"];
+ 
+// Media model:
+//   frame  = the visible window (item.w + aspect). It clips with overflow:hidden.
+//   picture = the ORIGINAL file, positioned inside the frame.
+//     zoom  = picture width as a fraction of the frame width (1 = same width, 0.5 = half, 3 = triple)
+//     panX  = left edge of the picture, as % of frame width   (can be negative or >100)
+//     panY  = top edge of the picture, as % of frame height   (can be negative or >100)
+//   natW/natH = the picture's real pixel size (measured when it loads).
 const MEDIA_DEFAULTS = {
-  fit: "cover", aspect: "auto", panX: 0, panY: 0, zoom: 1,
+  aspect: "auto", panX: 0, panY: 0, zoom: 1,
   bg: "transparent", autoplay: true, loop: true, muted: true,
 };
-
+ 
 // Placeholder art so the sample site looks alive before you add your own work.
 const ph = (label, bg = "#ffd166", fg = "#1d1d1d") =>
   "data:image/svg+xml;utf8," + encodeURIComponent(
     `<svg xmlns="http://www.w3.org/2000/svg" width="480" height="360"><rect width="100%" height="100%" fill="${bg}"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-family="sans-serif" font-size="30" font-weight="bold" fill="${fg}">${label}</text></svg>`);
-
+ 
 /* CONTENT:START */
 const CONTENT = {
   identity: {
@@ -73,33 +81,161 @@ const CONTENT = {
   ],
 };
 /* CONTENT:END */
-
+ 
 /* ============================================================
    HELPERS
    ============================================================ */
 const $ = (sel, root = document) => root.querySelector(sel);
 const clone = (o) => JSON.parse(JSON.stringify(o));
 const r1 = (n) => Math.round(n * 10) / 10;
+const r3 = (n) => Math.round(n * 1000) / 1000;
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) =>
   ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const uid = (p) => p + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 const findItem = (id) => C.canvas.find((i) => i.id === id);
 const elOf = (id) => document.querySelector(`#canvas .item[data-id="${id}"]`);
 const isMediaKind = (k) => k === "image" || k === "sticker" || k === "video";
-
+const opt = (v, cur, label) => `<option value="${v}" ${String(cur) === String(v) ? "selected" : ""}>${label}</option>`;
+ 
 async function sha256(text) {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
   return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 window.hashPassphrase = sha256;
-
+ 
+/* ============================================================
+   ASSET STORE (uploaded images, GIFs, videos)
+   Uploads live in the browser's IndexedDB, not in the draft.
+   The draft only holds short references like "asset:a1b2c3",
+   so the old "draft too big" limit no longer applies.
+   ============================================================ */
+const ASSET_DB = "animator-portfolio-assets";
+const ASSET_URLS = {}; // asset id -> object URL, for display
+ 
+function openAssetDB() {
+  return new Promise((res, rej) => {
+    const req = indexedDB.open(ASSET_DB, 1);
+    req.onupgradeneeded = () => req.result.createObjectStore("files");
+    req.onsuccess = () => res(req.result);
+    req.onerror = () => rej(req.error);
+  });
+}
+ 
+async function putAsset(id, blob) {
+  const db = await openAssetDB();
+  return new Promise((res, rej) => {
+    const tx = db.transaction("files", "readwrite");
+    tx.objectStore("files").put(blob, id);
+    tx.oncomplete = () => { db.close(); res(); };
+    tx.onerror = () => rej(tx.error);
+  });
+}
+ 
+async function getAsset(id) {
+  const db = await openAssetDB();
+  return new Promise((res, rej) => {
+    const req = db.transaction("files").objectStore("files").get(id);
+    req.onsuccess = () => { db.close(); res(req.result || null); };
+    req.onerror = () => rej(req.error);
+  });
+}
+ 
+async function storeUpload(file) {
+  const id = uid("a");
+  await putAsset(id, file);
+  ASSET_URLS[id] = URL.createObjectURL(file);
+  return "asset:" + id;
+}
+ 
+// Turns a stored reference into a URL the browser can display.
+const resolveSrc = (s) =>
+  typeof s === "string" && s.startsWith("asset:") ? (ASSET_URLS[s.slice(6)] || "") : (s || "");
+ 
+// Every place a picture can live: [object, key] pairs.
+function assetSlots(data = C) {
+  const slots = data.canvas.map((it) => [it, "src"]);
+  data.projects.forEach((p) => slots.push([p, "thumb"], [p, "preview"]));
+  slots.push([data.identity, "favicon"], [data.identity, "shareImage"]);
+  return slots;
+}
+ 
+function blobToDataURL(blob) {
+  return new Promise((res, rej) => {
+    const fr = new FileReader();
+    fr.onload = () => res(fr.result);
+    fr.onerror = rej;
+    fr.readAsDataURL(blob);
+  });
+}
+ 
+// Older drafts stored pictures inline as long text. Move them into the asset store.
+async function migrateInlineAssets() {
+  let changed = false;
+  for (const [obj, key] of assetSlots()) {
+    const v = obj[key];
+    if (typeof v === "string" && v.startsWith("data:") && !v.startsWith("data:image/svg+xml;utf8")) {
+      const blob = await (await fetch(v)).blob();
+      const id = uid("a");
+      await putAsset(id, blob);
+      obj[key] = "asset:" + id;
+      changed = true;
+    }
+  }
+  return changed;
+}
+ 
+// Runs when owner mode opens: migrate, load display URLs, drop unused files.
+async function prepareAssets() {
+  try {
+    if (await migrateInlineAssets()) saveDraft();
+    for (const [obj, key] of assetSlots()) {
+      const v = obj[key];
+      if (typeof v === "string" && v.startsWith("asset:") && !ASSET_URLS[v.slice(6)]) {
+        const blob = await getAsset(v.slice(6));
+        if (blob) ASSET_URLS[v.slice(6)] = URL.createObjectURL(blob);
+      }
+    }
+    await pruneAssets();
+  } catch (err) {
+    console.warn("Asset store problem:", err);
+  }
+}
+ 
+// Delete stored files that nothing in the current draft uses anymore.
+async function pruneAssets() {
+  const db = await openAssetDB();
+  const keys = await new Promise((res, rej) => {
+    const req = db.transaction("files").objectStore("files").getAllKeys();
+    req.onsuccess = () => res(req.result);
+    req.onerror = () => rej(req.error);
+  });
+  const used = new Set(assetSlots().map(([o, k]) => o[k])
+    .filter((v) => typeof v === "string" && v.startsWith("asset:"))
+    .map((v) => v.slice(6)));
+  const tx = db.transaction("files", "readwrite");
+  const store = tx.objectStore("files");
+  keys.forEach((k) => { if (!used.has(k)) store.delete(k); });
+  tx.oncomplete = () => db.close();
+}
+ 
+// Used by export: swaps stored references for real data so they can be saved as files.
+async function inlineAssets(data) {
+  for (const [obj, key] of assetSlots(data)) {
+    const v = obj[key];
+    if (typeof v === "string" && v.startsWith("asset:")) {
+      const blob = await getAsset(v.slice(6));
+      if (blob) obj[key] = await blobToDataURL(blob);
+    }
+  }
+}
+ 
 function setPath(obj, path, value) {
   const keys = path.split(".");
   const last = keys.pop();
   const target = keys.reduce((o, k) => (o[k] = o[k] || {}), obj);
   target[last] = value;
 }
-
+ 
 /* ============================================================
    STATE
    C is what is currently shown. Visitors always see CONTENT
@@ -107,43 +243,101 @@ function setPath(obj, path, value) {
    ============================================================ */
 let C = clone(CONTENT);
 let editing = false;
-let selectedId = null;
+let selectedId = null;          // selected canvas item
+let selectedProjectId = null;   // selected project card
 let currentTab = "canvas";
 let gesture = null;
 let cropDrag = null;
 let pendingUpload = null;
+let showOutside = false;        // UI toggle: draw the picture's full extent in the crop preview
 const hist = { stack: [], i: -1 };
-
+ 
 /* ============================================================
    MEDIA (images, GIFs, stickers, videos)
-   Pan/zoom/fit live in item.media. The file itself is never changed,
-   so GIF animation and video playback are preserved.
+   The frame is clipped. The picture is always the full original file,
+   positioned and scaled inside the frame. Nothing is cropped away
+   in the data, so you can always move the picture to reveal more.
    ============================================================ */
-const mediaOf = (item) => ({ ...MEDIA_DEFAULTS, ...(item.media || {}) });
-
-function mediaTransform(m) {
-  return `translate(${m.panX}%, ${m.panY}%) scale(${m.zoom})`;
+const mediaOf = (obj) => ({ ...MEDIA_DEFAULTS, ...(obj.media || {}) });
+const natOf = (m) => (m.natW && m.natH ? { w: m.natW, h: m.natH } : null);
+ 
+// CSS aspect-ratio string for the frame. "auto" follows the picture's real shape.
+function frameAspectCSS(m) {
+  if (m.aspect !== "auto") return m.aspect;
+  const nat = natOf(m);
+  return nat ? `${nat.w} / ${nat.h}` : "4 / 3";
 }
-
-function mediaInnerHTML(item, forceFrame = false) {
+ 
+function frameRatio(m) {
+  const [w, h] = frameAspectCSS(m).split("/").map((n) => Number(n.trim()));
+  return w / h;
+}
+ 
+// Positions the picture inside its frame. Used by the canvas and the crop preview.
+function pictureStyle(m) {
+  return `position:absolute;left:${m.panX}%;top:${m.panY}%;width:${m.zoom * 100}%;height:auto;max-width:none;pointer-events:none;`;
+}
+ 
+function mediaInnerHTML(item) {
   const m = mediaOf(item);
-  const h = forceFrame || m.aspect !== "auto" ? "100%" : "auto";
-  const style = `display:block;width:100%;height:${h};object-fit:${m.fit};` +
-                `transform:${mediaTransform(m)};transform-origin:center;pointer-events:none;`;
   if (item.kind === "video") {
-    return `<video src="${esc(item.src)}" style="${style}" ${m.autoplay ? "autoplay" : ""} ${m.loop ? "loop" : ""} ${m.muted ? "muted" : ""} playsinline></video>`;
+    return `<video data-mid="${esc(item.id)}" onloadedmetadata="measureMedia(this)" src="${esc(resolveSrc(item.src))}" style="${pictureStyle(m)}" ${m.autoplay ? "autoplay" : ""} ${m.loop ? "loop" : ""} ${m.muted ? "muted" : ""} playsinline></video>`;
   }
-  return `<img src="${esc(item.src)}" alt="${esc(item.alt || "")}" draggable="false" style="${style}">`;
+  return `<img data-mid="${esc(item.id)}" onload="measureMedia(this)" src="${esc(resolveSrc(item.src))}" alt="${esc(item.alt || "")}" draggable="false" style="${pictureStyle(m)}">`;
 }
-
-// Update just the transform (cheap, no video restart) while dragging a crop.
-function applyMediaTransform(item) {
-  const t = mediaTransform(mediaOf(item));
+ 
+// Re-position the picture without re-rendering (cheap, no video restart).
+function applyMediaTransform(obj) {
+  const m = mediaOf(obj);
   document
-    .querySelectorAll(`#canvas .item[data-id="${item.id}"] .media-frame > *, #crop-box .crop-inner > *`)
-    .forEach((n) => { n.style.transform = t; });
+    .querySelectorAll(`[data-id="${obj.id}"] .media-frame > *, [data-pid="${obj.id}"] .media-frame > *, #crop-box .crop-inner > *`)
+    .forEach((n) => {
+      n.style.left = m.panX + "%";
+      n.style.top = m.panY + "%";
+      n.style.width = m.zoom * 100 + "%";
+    });
 }
-
+ 
+const findMediaObj = (id) => C.canvas.find((i) => i.id === id) || C.projects.find((p) => p.id === id);
+ 
+// Called by the picture's onload. Stores its real pixel size once, so the
+// frame can match the picture's shape and fit/fill can do the maths.
+function measureMedia(el) {
+  const id = el.dataset.mid;
+  const w = el.naturalWidth || el.videoWidth;
+  const h = el.naturalHeight || el.videoHeight;
+  const obj = id && findMediaObj(id);
+  if (!obj || !w || !h) return;
+  const m = obj.media || {};
+  if (m.natW === w && m.natH === h) return;
+  obj.media = { ...mediaOf(obj), natW: w, natH: h };
+  if (editing) saveDraft();
+  if (!cropDrag && !gesture) renderPage();
+}
+ 
+// Fit entire image, fill frame, or reset. Returns false if the size isn't known yet.
+function placeMedia(obj, mode) {
+  const m = mediaOf(obj);
+  const nat = natOf(m);
+  if (!nat) {
+    alert("Still measuring the picture. Try again in a second.");
+    return false;
+  }
+  const a = nat.w / nat.h;   // picture shape
+  const f = frameRatio(m);   // frame shape
+  const k =
+    mode === "fit" ? Math.min(1, a / f) :
+    mode === "fill" ? Math.max(1, a / f) : 1;
+  const pictureHeightPct = (k * f / a) * 100; // picture height as % of frame height
+  obj.media = {
+    ...m,
+    zoom: r3(k),
+    panX: r1((100 - k * 100) / 2),
+    panY: r1((100 - pictureHeightPct) / 2),
+  };
+  return true;
+}
+ 
 /* ============================================================
    RENDERING (shared by public site and owner mode)
    ============================================================ */
@@ -154,10 +348,10 @@ function applyGeometry(el, item) {
   el.style.transform = `rotate(${item.rot || 0}deg)`;
   el.style.zIndex = item.z || 1;
 }
-
+ 
 // Font sizes are authored for a 900px-wide canvas and scale with it.
 const scaledPx = (px) => `calc(${px} * 100cqw / 900)`;
-
+ 
 function itemEl(item) {
   const el = document.createElement("div");
   const s = item.style || {};
@@ -169,7 +363,7 @@ function itemEl(item) {
   el.style.boxShadow = s.shadow ? "6px 8px 0 #1d1d1d" : "none";
   el.style.background = s.bg || "transparent";
   el.style.opacity = s.opacity === undefined ? 1 : s.opacity;
-
+ 
   if (item.kind === "text") {
     el.textContent = item.text;
     el.style.fontSize = scaledPx(s.fontSize || 32);
@@ -182,7 +376,7 @@ function itemEl(item) {
     el.innerHTML = `<a class="btn" href="${esc(item.href || "#")}" style="font-size:${scaledPx(s.fontSize || 22)}">${esc(item.text)}</a>`;
   } else {
     const m = mediaOf(item);
-    el.style.aspectRatio = m.aspect === "auto" ? "" : m.aspect;
+    el.style.aspectRatio = frameAspectCSS(m);
     const frame = document.createElement("div");
     frame.className = "media-frame";
     frame.style.background = m.bg;
@@ -191,28 +385,56 @@ function itemEl(item) {
   }
   return el;
 }
-
+ 
 function renderCanvas() {
   const c = $("#canvas");
   c.style.aspectRatio = C.canvasAspect;
   c.replaceChildren(...C.canvas.map(itemEl));
   updateSelection();
 }
-
+ 
+const showOf = (p) => ({ title: true, desc: true, tags: true, link: true, ...(p.show || {}) });
+ 
 function projectCard(p) {
+  const s = p.style || {};
+  const show = showOf(p);
+  const above = s.textOrder === "above";
+  const thumbMedia = { id: p.id, kind: "image", src: p.thumb, alt: p.title, media: p.media };
+  const tm = mediaOf(thumbMedia);
+ 
+  const css = [
+    p.rot !== undefined ? `--rot:${p.rot}deg` : "",
+    `border:${s.border || "2px solid var(--ink)"}`,
+    `border-radius:${s.radius || "0"}`,
+    `box-shadow:${s.shadow === false ? "none" : "6px 6px 0 var(--ink)"}`,
+    `background:${s.bg || "var(--paper)"}`,
+    `padding:${s.padding || "14px 14px 18px"}`,
+    `opacity:${s.opacity === undefined ? 1 : s.opacity}`,
+    `text-align:${s.align || "left"}`,
+    p.featured ? "grid-column: span 2" : "",
+  ].filter(Boolean).join(";");
+ 
+  const thumb = `
+    <div class="thumb" style="order:${above ? 2 : 1};aspect-ratio:${frameAspectCSS(tm)}">
+      <div class="media-frame" style="background:${tm.bg}">${mediaInnerHTML(thumbMedia)}</div>
+      ${p.preview ? `<video src="${esc(resolveSrc(p.preview))}" muted loop playsinline></video>` : ""}
+    </div>`;
+ 
+  const title = show.title
+    ? `<h3 style="font-size:${s.titleSize || 1.2}rem;color:${s.titleColor || "inherit"}">${esc(p.title)}</h3>` : "";
+  const desc = show.desc ? `<p>${esc(p.desc)}</p>` : "";
+  const tags = show.tags && (p.tags || []).length
+    ? `<div class="tags">${p.tags.map((t) => `<span>${esc(t)}</span>`).join("")}</div>` : "";
+  const link = show.link && p.link
+    ? `<a href="${esc(p.link)}" target="_blank" rel="noopener">watch project →</a>` : "";
+ 
   return `
-    <article class="card">
-      <div class="thumb">
-        <img src="${esc(p.thumb)}" alt="${esc(p.title)}">
-        ${p.preview ? `<video src="${esc(p.preview)}" muted loop playsinline></video>` : ""}
-      </div>
-      <h3>${esc(p.title)}</h3>
-      <p>${esc(p.desc)}</p>
-      <div class="tags">${(p.tags || []).map((t) => `<span>${esc(t)}</span>`).join("")}</div>
-      ${p.link ? `<a href="${esc(p.link)}" target="_blank" rel="noopener">watch project →</a>` : ""}
+    <article class="card" data-pid="${esc(p.id)}" style="${css}">
+      ${thumb}
+      <div class="card-text" style="order:${above ? 1 : 2}">${title}${desc}${tags}${link}</div>
     </article>`;
 }
-
+ 
 function wireCardHover() {
   document.querySelectorAll(".card").forEach((card) => {
     const v = card.querySelector("video");
@@ -221,7 +443,12 @@ function wireCardHover() {
     card.addEventListener("mouseleave", () => { v.pause(); v.currentTime = 0; });
   });
 }
-
+ 
+function updateProjectSelection() {
+  document.querySelectorAll(".card").forEach((c) =>
+    c.classList.toggle("sel", editing && c.dataset.pid === selectedProjectId));
+}
+ 
 // Sets the real favicon, description and share tags. Visitors get these from C
 // (the published content), so the preview and the live site can't drift apart.
 function setMeta(attr, key, value) {
@@ -234,7 +461,7 @@ function setMeta(attr, key, value) {
   }
   m.content = value;
 }
-
+ 
 function applyIdentity() {
   const id = C.identity;
   document.title = id.title || C.site.title;
@@ -249,10 +476,10 @@ function applyIdentity() {
       link.rel = "icon";
       document.head.append(link);
     }
-    link.href = id.favicon;
+    link.href = resolveSrc(id.favicon);
   }
 }
-
+ 
 function renderPage() {
   const st = document.documentElement.style;
   st.setProperty("--bg", C.theme.bg);
@@ -261,15 +488,16 @@ function renderPage() {
   applyIdentity();
   $("#site-name").textContent = C.site.name;
   $("#year").textContent = new Date().getFullYear();
-
+ 
   renderCanvas();
   $("#projects").innerHTML = C.projects.map(projectCard).join("");
   $("#about-body").innerHTML = C.about.split("\n").filter(Boolean).map((p) => `<p>${esc(p)}</p>`).join("");
   $("#links-body").innerHTML = C.links.map((l) =>
     `<a href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.label)}</a>`).join("");
   wireCardHover();
+  updateProjectSelection();
 }
-
+ 
 /* ============================================================
    SELECTION + HANDLES (owner mode)
    ============================================================ */
@@ -286,13 +514,32 @@ function updateSelection() {
     }
   });
 }
-
+ 
 function select(id) {
   selectedId = id;
+  if (id) {
+    selectedProjectId = null;
+    currentTab = "canvas";
+  }
   updateSelection();
+  updateProjectSelection();
   if (editing) refreshPanel();
 }
-
+ 
+// Clicking a project card in owner mode selects it and opens its settings.
+function onProjectClick(e) {
+  if (!editing) return;
+  const card = e.target.closest(".card");
+  if (!card) return;
+  e.preventDefault();
+  selectedId = null;
+  updateSelection();
+  selectedProjectId = card.dataset.pid;
+  currentTab = "projects";
+  updateProjectSelection();
+  refreshPanel();
+}
+ 
 /* ============================================================
    HISTORY (undo / redo) + DRAFT SAVING
    ============================================================ */
@@ -300,10 +547,10 @@ function saveDraft() {
   try {
     localStorage.setItem(CONFIG.draftKey, JSON.stringify(C));
   } catch {
-    alert("Your draft is too big for browser storage (big uploaded files). Export now so nothing gets lost, then move big files into assets/.");
+    alert("Couldn't save your draft in this browser. Export now so nothing gets lost.");
   }
 }
-
+ 
 function commit(rebuildPanel = true) {
   hist.stack = hist.stack.slice(0, hist.i + 1);
   hist.stack.push(clone(C));
@@ -314,41 +561,42 @@ function commit(rebuildPanel = true) {
   if (rebuildPanel) refreshPanel();
   updateToolbar();
 }
-
+ 
 function restore(i) {
   hist.i = i;
   C = clone(hist.stack[i]);
   if (selectedId && !findItem(selectedId)) selectedId = null;
+  if (selectedProjectId && !C.projects.some((p) => p.id === selectedProjectId)) selectedProjectId = null;
   saveDraft();
   renderPage();
   refreshPanel();
   updateToolbar();
 }
-
+ 
 const undo = () => hist.i > 0 && restore(hist.i - 1);
 const redo = () => hist.i < hist.stack.length - 1 && restore(hist.i + 1);
-
+ 
 function updateToolbar() {
   const u = $('[data-act="undo"]');
   const r = $('[data-act="redo"]');
   if (u) u.disabled = hist.i <= 0;
   if (r) r.disabled = hist.i >= hist.stack.length - 1;
 }
-
+ 
 /* ============================================================
-   POINTER GESTURES: move, resize, rotate (canvas) + crop pan (panel)
+   POINTER GESTURES: move, resize, rotate (canvas) + pan (crop preview)
    ============================================================ */
 function onCanvasDown(e) {
   if (!editing) return;
   if (e.target.closest("[contenteditable='true']")) return;
   const el = e.target.closest(".item");
   if (!el) { select(null); return; }
-
+ 
   const item = findItem(el.dataset.id);
   const handle = e.target.closest(".handle");
   if (selectedId !== item.id) select(item.id);
   if (item.locked) return;
-
+ 
   e.preventDefault();
   const cr = $("#canvas").getBoundingClientRect();
   const br = el.getBoundingClientRect();
@@ -363,28 +611,35 @@ function onCanvasDown(e) {
     moved: false,
   };
 }
-
-// Dragging inside the crop preview pans the picture within its frame.
+ 
+// Which object does the crop box belong to? Canvas item or project card.
+function cropTargetObj(box) {
+  if (box.dataset.target === "project") return C.projects[Number(box.dataset.index)];
+  return findItem(selectedId);
+}
+ 
+// Dragging the picture in the crop preview moves it inside the frame.
 function onPanelDown(e) {
   const box = e.target.closest("#crop-box");
   if (!box) return;
-  const it = findItem(selectedId);
-  if (!it) return;
+  const obj = cropTargetObj(box);
+  if (!obj) return;
   e.preventDefault();
-  const m = mediaOf(it);
-  cropDrag = { item: it, box, sx: e.clientX, sy: e.clientY, ox: m.panX, oy: m.panY, moved: false };
+  const m = mediaOf(obj);
+  cropDrag = { obj, box, sx: e.clientX, sy: e.clientY, ox: m.panX, oy: m.panY, moved: false };
 }
-
+ 
 function onMove(e) {
   if (cropDrag) {
     const c = cropDrag;
     const r = c.box.getBoundingClientRect();
-    const m = mediaOf(c.item);
+    const m = mediaOf(c.obj);
+    // Percent of the frame, so the picture follows the pointer exactly.
     m.panX = r1(c.ox + ((e.clientX - c.sx) / r.width) * 100);
     m.panY = r1(c.oy + ((e.clientY - c.sy) / r.height) * 100);
-    c.item.media = m;
+    c.obj.media = m;
     c.moved = true;
-    applyMediaTransform(c.item);
+    applyMediaTransform(c.obj);
     return;
   }
   if (!gesture) return;
@@ -405,7 +660,7 @@ function onMove(e) {
   const el = elOf(g.item.id);
   if (el) applyGeometry(el, g.item);
 }
-
+ 
 function onUp() {
   if (cropDrag) {
     const moved = cropDrag.moved;
@@ -418,7 +673,7 @@ function onUp() {
   gesture = null;
   if (moved) commit(true);
 }
-
+ 
 function onCanvasDbl(e) {
   if (!editing) return;
   const el = e.target.closest(".item.text");
@@ -437,7 +692,7 @@ function onCanvasDbl(e) {
     if (t !== item.text) { item.text = t; commit(true); }
   }, { once: true });
 }
-
+ 
 /* ============================================================
    ITEM + PROJECT ACTIONS
    ============================================================ */
@@ -449,10 +704,10 @@ function newItem(overrides) {
     ...overrides,
   };
 }
-
+ 
 const maxZExcept = (it) => Math.max(0, ...C.canvas.filter((i) => i !== it).map((i) => i.z || 0));
 const minZExcept = (it) => Math.min(0, ...C.canvas.filter((i) => i !== it).map((i) => i.z || 0));
-
+ 
 function deleteItem() {
   const it = findItem(selectedId);
   if (!it) return;
@@ -460,13 +715,13 @@ function deleteItem() {
   selectedId = null;
   commit(true);
 }
-
+ 
 function moveIn(arr, i, dir) {
   const j = i + dir;
   if (j < 0 || j >= arr.length) return;
   [arr[i], arr[j]] = [arr[j], arr[i]];
 }
-
+ 
 function askFile(p) {
   pendingUpload = p;
   const inp = $("#file-input");
@@ -475,24 +730,21 @@ function askFile(p) {
     p.field === "favicon" ? "image/*,.ico" : "image/*";
   inp.click();
 }
-
+ 
 async function onFile(e) {
   const f = e.target.files[0];
   e.target.value = "";
   if (!f || !pendingUpload) return;
   const p = pendingUpload;
   pendingUpload = null;
-  if (f.size > 5 * 1024 * 1024) {
-    alert("Heads up: that's a big file. It'll work, but compress it if the page feels slow.");
+  if (f.size > 25 * 1024 * 1024) {
+    alert("That's a very big file. It will work, but the page may feel slow.");
   }
-  const url = await new Promise((res, rej) => {
-    const fr = new FileReader();
-    fr.onload = () => res(fr.result);
-    fr.onerror = rej;
-    fr.readAsDataURL(f); // keeps GIF animation intact
-  });
+  // The original file is stored untouched, so GIF animation and video survive.
+  const url = await storeUpload(f);
   const kind = f.type.startsWith("video/") ? "video" : "image";
-
+ 
+  // A new file has a new size, so drop the old measurement; it gets re-measured on load.
   if (p.mode === "add") {
     const n = newItem({ kind, src: url, x: 30, y: 25, w: kind === "video" ? 40 : 25 });
     C.canvas.push(n);
@@ -503,15 +755,17 @@ async function onFile(e) {
     it.src = url;
     if (kind === "video") it.kind = "video";
     else if (it.kind === "video") it.kind = "image";
-    it.media = { ...mediaOf(it), panX: 0, panY: 0, zoom: 1 }; // new file starts uncropped
+    it.media = { ...MEDIA_DEFAULTS, aspect: mediaOf(it).aspect, bg: mediaOf(it).bg };
   } else if (p.mode === "project") {
-    C.projects[p.index][p.field] = url;
+    const proj = C.projects[p.index];
+    proj[p.field] = url;
+    if (p.field === "thumb") proj.media = { ...MEDIA_DEFAULTS, aspect: mediaOf(proj).aspect, bg: mediaOf(proj).bg };
   } else if (p.mode === "identity") {
     C.identity[p.field] = url;
   }
   commit(true);
 }
-
+ 
 /* ============================================================
    OWNER PANEL (forms are generated from the data)
    ============================================================ */
@@ -522,43 +776,49 @@ function canvasHint() {
     <h4>Layers (top first)</h4>
     ${layers.map((i) => `<div class="row"><button data-act="select" data-id="${i.id}">${esc(i.kind)}${i.locked ? " 🔒" : ""}: ${esc((i.text || "").slice(0, 18))}</button></div>`).join("") || "<p>Nothing yet. Use the toolbar to add stuff.</p>"}`;
 }
-
-function cropEditor(it) {
+ 
+// Crop and position editor. The solid box is the frame (what visitors see).
+// The picture is the full original file, and it can be moved past the edges.
+// `t` is the data-target attribute that tells the handlers which object this is.
+function cropEditor(it, t = 'data-target="item"') {
   const m = mediaOf(it);
-  const ratio = m.aspect === "auto" ? "4 / 3" : m.aspect;
+  const nat = natOf(m);
+  const outline = showOutside && nat
+    ? `<div class="src-outline" style="left:${m.panX}%;top:${m.panY}%;width:${m.zoom * 100}%;aspect-ratio:${nat.w} / ${nat.h}"></div>`
+    : "";
   return `
     <div class="crop-wrap">
       <h4>Crop &amp; position</h4>
-      <div id="crop-box" class="crop-box" style="aspect-ratio:${ratio}" title="drag to reposition">
-        <div class="crop-inner">${mediaInnerHTML(it, true)}</div>
+      <div id="crop-box" class="crop-box" ${t} style="aspect-ratio:${frameAspectCSS(m)}" title="drag the picture to move it">
+        ${outline}
+        <div class="crop-inner">${mediaInnerHTML(it)}</div>
       </div>
-      <p class="hint">Drag the picture inside the frame to choose what's visible. Your file isn't changed.</p>
-      <label>Zoom
-        <input type="range" min="1" max="4" step="0.05" data-target="item" data-key="media.zoom" value="${m.zoom}">
+      <p class="hint">The solid box is your frame. Drag the picture to move it, even past the edges.${nat ? "" : " (Measuring the picture…)"}</p>
+      <label>Zoom (picture size vs frame)
+        <input type="range" min="0.1" max="5" step="0.05" ${t} data-key="media.zoom" value="${m.zoom}">
       </label>
       <div class="row">
-        <label>Pan X %<input type="number" step="1" data-target="item" data-key="media.panX" value="${m.panX}"></label>
-        <label>Pan Y %<input type="number" step="1" data-target="item" data-key="media.panY" value="${m.panY}"></label>
+        <label>Pan X % (left edge)<input type="number" step="0.5" ${t} data-key="media.panX" value="${m.panX}"></label>
+        <label>Pan Y % (top edge)<input type="number" step="0.5" ${t} data-key="media.panY" value="${m.panY}"></label>
       </div>
-      <div class="row"><button data-act="crop-reset">reset crop</button></div>
+      <div class="row">
+        <button data-act="media-fit" ${t}>fit entire image</button>
+        <button data-act="media-fill" ${t}>fill frame</button>
+        <button data-act="crop-reset" ${t}>reset position</button>
+      </div>
+      <label><input type="checkbox" id="show-outside" ${showOutside ? "checked" : ""}> show the parts outside the frame (dashed line)</label>
     </div>`;
 }
-
-function mediaControls(it) {
+ 
+function mediaControls(it, t = 'data-target="item"') {
   const m = mediaOf(it);
-  const t = 'data-target="item"';
-  const fits = [["cover", "fill frame (cover)"], ["contain", "fit inside (contain)"], ["fill", "stretch (fill)"], ["none", "original size"]];
   return `
     <h4>Frame &amp; picture</h4>
     <label>Frame shape (aspect ratio)
       <input list="aspect-list" ${t} data-key="media.aspect" value="${esc(m.aspect)}">
     </label>
     <datalist id="aspect-list">${FRAME_ASPECTS.map((a) => `<option value="${a}">`).join("")}</datalist>
-    <label>Picture fit
-      <select ${t} data-key="media.fit">${fits.map(([v, l]) =>
-        `<option value="${v}" ${m.fit === v ? "selected" : ""}>${l}</option>`).join("")}</select>
-    </label>
-    <label>Empty-space background (for "fit inside")
+    <label>Empty-space background (frame colour)
       <input ${t} data-key="media.bg" value="${esc(m.bg)}">
     </label>
     ${it.kind === "video" ? `
@@ -566,7 +826,7 @@ function mediaControls(it) {
       <label><input type="checkbox" ${t} data-key="media.loop" ${m.loop ? "checked" : ""}> Loop</label>
       <label><input type="checkbox" ${t} data-key="media.muted" ${m.muted ? "checked" : ""}> Muted</label>` : ""}`;
 }
-
+ 
 function itemForm(it) {
   const s = it.style || {};
   const t = 'data-target="item"';
@@ -574,7 +834,7 @@ function itemForm(it) {
   const isBtn = it.kind === "button";
   const isMedia = isMediaKind(it.kind);
   const color = /^#[0-9a-f]{6}$/i.test(s.color || "") ? s.color : "#1d1d1d";
-
+ 
   return `
     <h3>selected: ${esc(it.kind)}</h3>
     ${isMedia ? cropEditor(it) : ""}
@@ -583,8 +843,7 @@ function itemForm(it) {
     ${isBtn ? `<label>Button label<input ${t} data-key="text" value="${esc(it.text)}"></label>
                <label>Link<input ${t} data-key="href" value="${esc(it.href)}"></label>` : ""}
     ${isMedia ? `<label>Kind
-                   <select ${t} data-key="kind">${["image", "sticker"].map((k) =>
-                     `<option ${k === it.kind ? "selected" : ""}>${k}</option>`).join("")}</select>
+                   <select ${t} data-key="kind">${["image", "sticker"].map((k) => opt(k, it.kind, k)).join("")}</select>
                  </label>
                  <div class="row">
                    <button data-act="item-replace">replace file</button>
@@ -599,12 +858,9 @@ function itemForm(it) {
     <label>Corner radius (CSS, e.g. 12px or 50%)<input ${t} data-key="style.radius" value="${esc(s.radius || "")}"></label>
     ${isText || isBtn ? `<label>Font size (px on a 900px canvas)<input type="number" ${t} data-key="style.fontSize" value="${s.fontSize || (isText ? 32 : 22)}"></label>` : ""}
     ${isText ? `
-      <label>Font<select ${t} data-key="style.fontFamily">${FONTS.map((f) =>
-        `<option value="${esc(f.value)}" ${f.value === s.fontFamily ? "selected" : ""}>${f.label}</option>`).join("")}</select></label>
-      <label>Weight<select ${t} data-key="style.weight">${[400, 700, 900].map((w) =>
-        `<option value="${w}" ${Number(s.weight) === w ? "selected" : ""}>${w}</option>`).join("")}</select></label>
-      <label>Alignment<select ${t} data-key="style.align">${["left", "center", "right"].map((a) =>
-        `<option ${s.align === a ? "selected" : ""}>${a}</option>`).join("")}</select></label>
+      <label>Font<select ${t} data-key="style.fontFamily">${FONTS.map((f) => opt(f.value, s.fontFamily, f.label)).join("")}</select></label>
+      <label>Weight<select ${t} data-key="style.weight">${[400, 700, 900].map((w) => opt(w, Number(s.weight), w)).join("")}</select></label>
+      <label>Alignment<select ${t} data-key="style.align">${["left", "center", "right"].map((a) => opt(a, s.align, a)).join("")}</select></label>
       <label>Text colour<input type="color" ${t} data-key="style.color" value="${color}"></label>` : ""}
     <label>Background (colour, or "transparent")<input ${t} data-key="style.bg" value="${esc(s.bg || "transparent")}"></label>
     <label>Border (CSS, e.g. 3px solid #1d1d1d)<input ${t} data-key="style.border" value="${esc(s.border || "")}"></label>
@@ -617,36 +873,78 @@ function itemForm(it) {
       <button data-act="item-del">delete</button>
     </div>`;
 }
-
-function projectsForm() {
-  const rows = C.projects.map((p, i) => `
-    <div class="card-form">
-      <strong>${i + 1}. ${esc(p.title)}</strong>
-      <label>Title<input data-target="project" data-index="${i}" data-key="title" value="${esc(p.title)}"></label>
-      <label>Description<textarea rows="2" data-target="project" data-index="${i}" data-key="desc">${esc(p.desc)}</textarea></label>
-      <label>External link<input data-target="project" data-index="${i}" data-key="link" value="${esc(p.link)}"></label>
-      <label>Tags (comma separated)<input data-target="project" data-index="${i}" data-key="tags" value="${esc((p.tags || []).join(", "))}"></label>
+ 
+// One project card's full settings. Crop and frame controls only appear for the
+// selected card, so the crop box ID stays unique.
+function projectForm(p, i) {
+  const sel = p.id === selectedProjectId;
+  const s = p.style || {};
+  const show = showOf(p);
+  const t = `data-target="project" data-index="${i}"`;
+  const proxy = { id: p.id, kind: "image", src: p.thumb, alt: p.title, media: p.media };
+  const cb = (key, on, label) =>
+    `<label><input type="checkbox" ${t} data-key="${key}" ${on ? "checked" : ""}> ${label}</label>`;
+ 
+  return `
+    <details class="card-form" ${sel ? "open" : ""}>
+      <summary><strong>${i + 1}. ${esc(p.title)}</strong>${sel ? " ← editing" : ""}</summary>
+ 
+      <h4>Text</h4>
+      <label>Title<input ${t} data-key="title" value="${esc(p.title)}"></label>
+      <label>Description<textarea rows="2" ${t} data-key="desc">${esc(p.desc)}</textarea></label>
+      <label>External link<input ${t} data-key="link" value="${esc(p.link)}"></label>
+      <label>Tags (comma separated)<input ${t} data-key="tags" value="${esc((p.tags || []).join(", "))}"></label>
+      <label>Title size (rem)<input type="number" step="0.1" ${t} data-key="style.titleSize" value="${s.titleSize || 1.2}"></label>
+      <label>Title colour<input type="color" ${t} data-key="style.titleColor" value="${/^#[0-9a-f]{6}$/i.test(s.titleColor || "") ? s.titleColor : "#1d1d1d"}"></label>
+      <label>Text alignment<select ${t} data-key="style.align">${["left", "center", "right"].map((a) => opt(a, s.align || "left", a)).join("")}</select></label>
+      <label>Text position<select ${t} data-key="style.textOrder">${[["below", "below picture"], ["above", "above picture"]].map(([v, l]) => opt(v, s.textOrder || "below", l)).join("")}</select></label>
+      <label><input type="checkbox" ${t} data-key="featured" ${p.featured ? "checked" : ""}> Featured (spans two columns)</label>
+ 
+      <h4>Show / hide</h4>
+      ${cb("show.title", show.title, "title")}
+      ${cb("show.desc", show.desc, "description")}
+      ${cb("show.tags", show.tags, "tags")}
+      ${cb("show.link", show.link, "link")}
+ 
+      <h4>Card look</h4>
+      <label>Rotation (degrees)<input type="number" step="1" ${t} data-key="rot" value="${p.rot || 0}"></label>
+      <label>Border (CSS)<input ${t} data-key="style.border" value="${esc(s.border || "")}" placeholder="2px solid #1d1d1d"></label>
+      <label>Corner radius (CSS)<input ${t} data-key="style.radius" value="${esc(s.radius || "")}"></label>
+      <label>Card background (colour)<input ${t} data-key="style.bg" value="${esc(s.bg || "")}" placeholder="e.g. #fffdf7"></label>
+      <label>Padding (CSS)<input ${t} data-key="style.padding" value="${esc(s.padding || "")}" placeholder="14px 14px 18px"></label>
+      <label>Opacity<input type="range" min="0" max="1" step="0.05" ${t} data-key="style.opacity" value="${s.opacity === undefined ? 1 : s.opacity}"></label>
+      <label>${s.shadow === false ? `<input type="checkbox" ${t} data-key="style.shadow"> Hard shadow` : `<input type="checkbox" ${t} data-key="style.shadow" checked> Hard shadow`}</label>
+ 
+      <h4>Thumbnail / GIF</h4>
       <div class="row">
-        <img class="mini" src="${esc(p.thumb)}" alt="">
         <button data-act="proj-thumb" data-index="${i}">replace thumbnail</button>
-        <button data-act="proj-preview" data-index="${i}">${p.preview ? "replace" : "add"} GIF/video preview</button>
+        <button data-act="proj-preview" data-index="${i}">${p.preview ? "replace" : "add"} hover preview</button>
       </div>
+      ${sel ? `${cropEditor(proxy, t)}${mediaControls(proxy, t)}` : `<p class="hint">Click this card on the page to crop its picture and change its frame.</p>`}
+ 
       <div class="row">
         <button data-act="proj-up" data-index="${i}">↑ up</button>
         <button data-act="proj-down" data-index="${i}">↓ down</button>
         <button data-act="proj-del" data-index="${i}">remove</button>
       </div>
-    </div>`).join("");
-  return `${rows}<button data-act="proj-add">+ add project</button>`;
+    </details>`;
 }
-
+ 
+function projectsForm() {
+  const hint = selectedProjectId
+    ? ""
+    : `<p class="hint">Click any project card on the page to edit its text, look, picture and crop.</p>`;
+  return hint + C.projects.map(projectForm).join("") +
+    `<button data-act="proj-add">+ add project</button>`;
+}
+ 
 function identityForm() {
   const id = C.identity;
   const tabTitle = id.title || C.site.title;
   return `
     <h4>Browser tab preview</h4>
     <div class="fake-tab">
-      <img src="${esc(id.favicon || ph("A", "#1d1d1d", "#fff"))}" alt="">
+      <img src="${esc(resolveSrc(id.favicon) || ph("A", "#1d1d1d", "#fff"))}" alt="">
       <span>${esc(tabTitle)}</span>
     </div>
     <div class="row">
@@ -656,10 +954,10 @@ function identityForm() {
     <p class="hint">Square PNG, 512×512 ideal (ICO and SVG also work). The browser shrinks it for you.</p>
     <label>Browser tab title<input data-target="site" data-key="identity.title" value="${esc(id.title)}"></label>
     <label>Search description<textarea rows="2" data-target="site" data-key="identity.description">${esc(id.description)}</textarea></label>
-
+ 
     <h4>Share preview (chat / social links)</h4>
     <div class="share-preview">
-      ${id.shareImage ? `<img src="${esc(id.shareImage)}" alt="">` : `<em>no share image yet</em>`}
+      ${id.shareImage ? `<img src="${esc(resolveSrc(id.shareImage))}" alt="">` : `<em>no share image yet</em>`}
       <strong>${esc(id.shareTitle || id.title)}</strong>
       <span>${esc(id.shareDescription || id.description)}</span>
     </div>
@@ -671,15 +969,14 @@ function identityForm() {
     <label>Share description<textarea rows="2" data-target="site" data-key="identity.shareDescription">${esc(id.shareDescription)}</textarea></label>
     <p class="hint">Heads up: link previews in Discord, iMessage and Slack read the static meta tags in index.html, and they can't run JavaScript. Paste the snippet from the reply into index.html once.</p>`;
 }
-
+ 
 function siteForm() {
   return `
     <label>Your name (header)<input data-target="site" data-key="site.name" value="${esc(C.site.name)}"></label>
     <label>Background<input type="color" data-target="site" data-key="theme.bg" value="${C.theme.bg}"></label>
     <label>Text colour<input type="color" data-target="site" data-key="theme.ink" value="${C.theme.ink}"></label>
     <label>Accent colour<input type="color" data-target="site" data-key="theme.accent" value="${C.theme.accent}"></label>
-    <label>Hero canvas shape<select data-target="site" data-key="canvasAspect">${ASPECTS.map((a) =>
-      `<option value="${a}" ${a === C.canvasAspect ? "selected" : ""}>${a}</option>`).join("")}</select></label>
+    <label>Hero canvas shape<select data-target="site" data-key="canvasAspect">${ASPECTS.map((a) => opt(a, C.canvasAspect, a)).join("")}</select></label>
     <label>About (blank line between paragraphs)<textarea rows="6" data-target="site" data-key="about">${esc(C.about)}</textarea></label>
     <h4>Links</h4>
     ${C.links.map((l, i) => `
@@ -690,7 +987,7 @@ function siteForm() {
       </div>`).join("")}
     <button data-act="link-add">+ add link</button>`;
 }
-
+ 
 function refreshPanel() {
   if (!editing) return;
   document.querySelectorAll("#ed-panel .tabs button").forEach((b) =>
@@ -706,58 +1003,69 @@ function refreshPanel() {
   } else {
     body.innerHTML = siteForm();
   }
+  updateProjectSelection();
 }
-
+ 
+// The object a form field edits, based on its data-target.
+function targetOf(el) {
+  const t = el.dataset.target;
+  const idx = Number(el.dataset.index);
+  if (t === "item") return findItem(selectedId);
+  if (t === "project") return C.projects[idx];
+  if (t === "link") return C.links[idx];
+  return C;
+}
+ 
+// Live update while dragging the zoom slider: no save, no history entry yet.
+function onPanelInput(e) {
+  const el = e.target;
+  if (el.type !== "range" || !el.dataset.key || !el.dataset.key.startsWith("media.")) return;
+  const obj = targetOf(el);
+  if (!obj) return;
+  setPath(obj, el.dataset.key, Number(el.value));
+  applyMediaTransform(obj);
+}
+ 
 // Any form field change: write it into the data, then save.
 function onPanelChange(e) {
   const el = e.target;
+  if (el.id === "show-outside") {
+    showOutside = el.checked;
+    return refreshPanel();
+  }
   if (!el.dataset.key) return;
-  const t = el.dataset.target;
-  const idx = Number(el.dataset.index);
-  const obj =
-    t === "item" ? findItem(selectedId) :
-    t === "project" ? C.projects[idx] :
-    t === "link" ? C.links[idx] : C;
+  const obj = targetOf(el);
   if (!obj) return;
-
+ 
   let v = el.type === "checkbox" ? el.checked
         : (el.type === "number" || el.type === "range") ? Number(el.value)
         : el.value;
   if ((el.type === "number" || el.type === "range") && Number.isNaN(v)) return;
-  if (el.dataset.key === "tags") v = v.split(",").map((s) => s.trim()).filter(Boolean);
-  if (el.dataset.key === "style.bg" && !String(v).trim()) v = "transparent";
-  if (el.dataset.key === "media.bg" && !String(v).trim()) v = "transparent";
-  if (el.dataset.key === "media.aspect" && !String(v).trim()) v = "auto";
-
-  setPath(obj, el.dataset.key, v);
-  // Keep the crop preview and canvas in sync when zoom or pan changes.
-  if (t === "item" && el.dataset.key.startsWith("media.")) {
-    const it = findItem(selectedId);
-    if (it) {
-      const el2 = elOf(it.id);
-      if (el2) {
-        el2.querySelector(".media-frame")?.style.setProperty("background", mediaOf(it).bg);
-      }
-      applyMediaTransform(it);
-    }
-  }
-  commit(!el.dataset.key.startsWith("media.zoom") && !el.dataset.key.startsWith("media.pan"));
+  const key = el.dataset.key;
+  if (key === "tags") v = v.split(",").map((s) => s.trim()).filter(Boolean);
+  if (key === "style.bg" && !String(v).trim()) v = "transparent";
+  if (key === "media.bg" && !String(v).trim()) v = "transparent";
+  if (key === "media.aspect" && !String(v).trim()) v = "auto";
+ 
+  setPath(obj, key, v);
+  const isPanOrZoom = key === "media.zoom" || key === "media.panX" || key === "media.panY";
+  if (key.startsWith("media.")) applyMediaTransform(obj);
+  commit(!isPanOrZoom);
 }
-
+ 
 /* ============================================================
    TOOLBAR ACTIONS
    ============================================================ */
 function act(name, d) {
   const it = findItem(selectedId);
   const idx = Number(d.index);
-
+ 
   switch (name) {
     case "tab":
       currentTab = d.tab;
       return refreshPanel();
     case "select":
-      selectedId = d.id;
-      updateSelection();
+      select(d.id);
       return refreshPanel();
     case "undo": return undo();
     case "redo": return redo();
@@ -767,10 +1075,11 @@ function act(name, d) {
       if (confirm("Throw away the draft and go back to the published site?")) {
         C = clone(CONTENT);
         selectedId = null;
+        selectedProjectId = null;
         commit(true);
       }
       return;
-
+ 
     case "add-image": return askFile({ mode: "add" });
     case "add-url": {
       const url = prompt("Image or GIF URL:");
@@ -798,12 +1107,12 @@ function act(name, d) {
       selectedId = n.id;
       return commit(true);
     }
-
+ 
     case "item-replace": return askFile({ mode: "replace" });
     case "item-url": {
       if (!it) return;
       const url = prompt("Image or GIF URL:", it.src && !it.src.startsWith("data:") ? it.src : "");
-      if (url) { it.src = url.trim(); commit(true); }
+      if (url) { it.src = url.trim(); it.media = { ...MEDIA_DEFAULTS, aspect: mediaOf(it).aspect, bg: mediaOf(it).bg }; commit(true); }
       return;
     }
     case "item-dup": {
@@ -824,51 +1133,68 @@ function act(name, d) {
     case "item-back":
       if (it) { it.z = minZExcept(it) - 1; commit(true); }
       return;
-
-    case "crop-reset":
-      if (it) { it.media = { ...mediaOf(it), panX: 0, panY: 0, zoom: 1 }; commit(true); }
+ 
+    case "media-fit":
+    case "media-fill": {
+      const obj = d.target === "project" ? C.projects[idx] : it;
+      if (!obj) return;
+      if (placeMedia(obj, name === "media-fit" ? "fit" : "fill")) commit(true);
       return;
-
+    }
+    case "crop-reset": {
+      const obj = d.target === "project" ? C.projects[idx] : it;
+      if (obj) { placeMedia(obj, "reset"); commit(true); }
+      return;
+    }
+ 
     case "id-favicon": return askFile({ mode: "identity", field: "favicon" });
     case "id-favicon-clear": C.identity.favicon = ""; return commit(true);
     case "id-share": return askFile({ mode: "identity", field: "shareImage" });
     case "id-share-clear": C.identity.shareImage = ""; return commit(true);
-
-    case "proj-add":
-      C.projects.push({ id: uid("p"), title: "New project", desc: "", thumb: ph("NEW PROJECT", "#b8f2e6"), preview: "", link: "", tags: [] });
+ 
+    case "proj-add": {
+      const p = { id: uid("p"), title: "New project", desc: "", thumb: ph("NEW PROJECT", "#b8f2e6"), preview: "", link: "", tags: [] };
+      C.projects.push(p);
+      selectedProjectId = p.id;
+      currentTab = "projects";
       return commit(true);
+    }
     case "proj-up": moveIn(C.projects, idx, -1); return commit(true);
     case "proj-down": moveIn(C.projects, idx, 1); return commit(true);
     case "proj-del":
-      if (confirm("Remove this project from the site?")) { C.projects.splice(idx, 1); commit(true); }
+      if (confirm("Remove this project from the site?")) {
+        if (C.projects[idx]?.id === selectedProjectId) selectedProjectId = null;
+        C.projects.splice(idx, 1);
+        commit(true);
+      }
       return;
     case "proj-thumb": return askFile({ mode: "project", index: idx, field: "thumb" });
     case "proj-preview": return askFile({ mode: "project", index: idx, field: "preview" });
-
+ 
     case "link-add": C.links.push({ label: "New link", url: "https://" }); return commit(true);
     case "link-del": C.links.splice(idx, 1); return commit(true);
   }
 }
-
+ 
 function onAct(e) {
   if (!editing) return;
   const b = e.target.closest("[data-act]");
   if (!b) return;
   act(b.dataset.act, b.dataset);
 }
-
+ 
 function onKey(e) {
   if (!editing) return;
   if (e.target.closest("input, textarea, select, [contenteditable='true']")) return;
   const mod = e.ctrlKey || e.metaKey;
   const key = e.key.toLowerCase();
-
+ 
   if (mod && key === "z") { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
   if (mod && key === "y") { e.preventDefault(); redo(); return; }
-
+ 
   if (!selectedId) return;
   if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); deleteItem(); return; }
-
+ 
   const it = findItem(selectedId);
   if (!it || it.locked || !e.key.startsWith("Arrow")) return;
   e.preventDefault();
@@ -879,17 +1205,19 @@ function onKey(e) {
   if (e.key === "ArrowDown") it.y = r1(it.y + step);
   commit(false);
 }
-
+ 
 /* ============================================================
    EXPORT (publishing)
    Writes an updated script.js with the new content baked in,
    and downloads any uploaded images so you can put them in assets/.
+   Picture sizes and crop settings are saved inside each object's media.
    ============================================================ */
 async function exportSite() {
   const data = clone(C);
+  await inlineAssets(data);
   const downloads = [];
   let n = 0;
-
+ 
   const extFor = (u) => {
     const m = u.match(/^data:image\/([a-z0-9+.-]+);/i);
     if (!m) return "png";
@@ -902,7 +1230,7 @@ async function exportSite() {
     downloads.push({ name, href: src });
     return name;
   };
-
+ 
   data.canvas.forEach((it) => { if (it.src) it.src = localize(it.src, it.kind); });
   data.projects.forEach((p, i) => {
     p.thumb = localize(p.thumb, `project${i + 1}-thumb`);
@@ -910,12 +1238,12 @@ async function exportSite() {
   });
   data.identity.favicon = localize(data.identity.favicon, "favicon");
   data.identity.shareImage = localize(data.identity.shareImage, "share-image");
-
+ 
   let source = null;
   try {
     source = await (await fetch("script.js", { cache: "no-store" })).text();
   } catch { /* opened from file:// or no server */ }
-
+ 
   const block = `/* CONTENT:START */\nconst CONTENT = ${JSON.stringify(data, null, 2)};\n/* CONTENT:END */`;
   if (source && source.includes("CONTENT:START")) {
     const next = source.replace(/\/\* CONTENT:START \*\/[\s\S]*?\/\* CONTENT:END \*\//, () => block);
@@ -926,7 +1254,7 @@ async function exportSite() {
     downloads.unshift({ name: "content-block.js", href: url });
     alert("Couldn't read script.js from this page (are you running it from a local server or GitHub Pages?). I downloaded just the content block instead. Paste it between the CONTENT markers in script.js.");
   }
-
+ 
   for (const d of downloads) {
     const a = document.createElement("a");
     a.href = d.href;
@@ -936,16 +1264,16 @@ async function exportSite() {
     a.remove();
     await new Promise((r) => setTimeout(r, 300)); // give the browser time between downloads
   }
-
+ 
   alert("Exported! To publish:\n1. Replace script.js in your repo with the downloaded one.\n2. Create an assets/ folder and move the downloaded images into it.\n3. Commit and push. GitHub Pages updates in a minute or two.");
 }
-
+ 
 /* ============================================================
    OWNER MODE SETUP
    ============================================================ */
 function enterEditor() {
   editing = true;
-
+ 
   const bar = document.createElement("div");
   bar.id = "ed-bar";
   bar.innerHTML = `
@@ -959,7 +1287,7 @@ function enterEditor() {
     <button data-act="export">⬇ export site</button>
     <button data-act="reset">reset draft</button>
     <button data-act="exit">exit</button>`;
-
+ 
   const panel = document.createElement("aside");
   panel.id = "ed-panel";
   panel.innerHTML = `
@@ -970,27 +1298,29 @@ function enterEditor() {
       <button data-act="tab" data-tab="site">site</button>
     </div>
     <div id="ed-body"></div>`;
-
+ 
   const fileInput = document.createElement("input");
   fileInput.type = "file";
   fileInput.id = "file-input";
   fileInput.hidden = true;
   fileInput.addEventListener("change", onFile);
-
+ 
   document.body.append(bar, panel, fileInput);
   document.body.classList.add("editing");
   panel.addEventListener("change", onPanelChange);
+  panel.addEventListener("input", onPanelInput);
   panel.addEventListener("pointerdown", onPanelDown);
   document.addEventListener("keydown", onKey);
-
+ 
   updateSelection();
   refreshPanel();
   updateToolbar();
 }
-
+ 
 function exitEditor() {
   editing = false;
   selectedId = null;
+  selectedProjectId = null;
   $("#ed-bar")?.remove();
   $("#ed-panel")?.remove();
   $("#file-input")?.remove();
@@ -1000,7 +1330,7 @@ function exitEditor() {
   C = clone(CONTENT);
   renderPage();
 }
-
+ 
 async function openOwnerMode() {
   if (CONFIG.ownerHash.startsWith("PASTE_")) {
     alert("Owner passphrase isn't set yet. See the instructions at the top of script.js.");
@@ -1016,12 +1346,13 @@ async function openOwnerMode() {
     const saved = localStorage.getItem(CONFIG.draftKey);
     if (saved) C = JSON.parse(saved);
   } catch { /* corrupt draft: fall back to published */ }
+  await prepareAssets();
   hist.stack = [clone(C)];
   hist.i = 0;
   enterEditor();
   renderPage();
 }
-
+ 
 /* ============================================================
    INIT
    ============================================================ */
@@ -1032,13 +1363,15 @@ function init() {
   canvas.addEventListener("click", (e) => {
     if (editing && e.target.closest("a")) e.preventDefault();
   });
+  $("#projects").addEventListener("click", onProjectClick);
   window.addEventListener("pointermove", onMove);
   window.addEventListener("pointerup", onUp);
   window.addEventListener("pointercancel", onUp);
   document.addEventListener("click", onAct);
-
+ 
   renderPage();
   if (new URLSearchParams(location.search).has("edit")) openOwnerMode();
 }
-
+ 
 init();
+ 
