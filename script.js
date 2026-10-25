@@ -46,39 +46,223 @@ const ph = (label, bg = "#ffd166", fg = "#1d1d1d") =>
  
 /* CONTENT:START */
 const CONTENT = {
-  identity: {
-    title: "Your Name — Animator",
-    description: "Animator portfolio: loops, characters and frame-by-frame chaos.",
-    favicon: "",
-    shareImage: "",
-    shareTitle: "",
-    shareDescription: "",
+  "identity": {
+    "title": "PenguinDoDrip — Animator",
+    "description": "Animator portfolio: loops, characters and frame-by-frame chaos.",
+    "favicon": "assets/favicon-7.jpg",
+    "shareImage": "assets/share-image-8.jpg",
+    "shareTitle": "PenguinDoDrip's Portfolio",
+    "shareDescription": ""
   },
-  site: { title: "Your Name — Animator", name: "Your Name" },
-  theme: { bg: "#f6efe2", ink: "#1d1d1d", accent: "#ff5a36" },
-  canvasAspect: "16 / 10",
-  canvas: [
-    { id: "t-hello", kind: "text", text: "hi, I'm Your Name", x: 6, y: 10, w: 44, rot: -3, z: 5, locked: false,
-      style: { fontSize: 72, fontFamily: FONTS[0].value, weight: 700, color: "#1d1d1d", align: "left", bg: "transparent", border: "", shadow: false } },
-    { id: "img-1", kind: "image", src: ph("SAMPLE GIF", "#8ecae6"), alt: "placeholder", x: 58, y: 6, w: 30, rot: 4, z: 2, locked: false,
-      style: { border: "4px solid #1d1d1d", shadow: true, bg: "#fff" } },
-    { id: "st-1", kind: "sticker", src: ph("★ STICKER", "#ff5a36", "#fff"), alt: "sticker", x: 82, y: 58, w: 12, rot: -12, z: 6, locked: false, style: {} },
-    { id: "t-tag", kind: "text", text: "animator • storyteller • frame-by-frame goblin", x: 8, y: 62, w: 40, rot: 2, z: 4, locked: false,
-      style: { fontSize: 28, fontFamily: FONTS[1].value, weight: 700, color: "#1d1d1d", align: "left", bg: "#fffdf7", border: "2px solid #1d1d1d", shadow: true } },
-    { id: "btn-reel", kind: "button", text: "see my reel →", href: "#reel", x: 60, y: 68, w: 22, rot: -2, z: 7, locked: false,
-      style: { fontSize: 22, bg: "transparent", border: "", shadow: false } },
+  "site": {
+    "title": "Your Name — Animator",
+    "name": "PenguinDoDrip"
+  },
+  "theme": {
+    "bg": "#f6efe2",
+    "ink": "#1d1d1d",
+    "accent": "#ff5a36"
+  },
+  "canvasAspect": "16 / 10",
+  "canvas": [
+    {
+      "id": "t-hello",
+      "kind": "text",
+      "text": "Hi, I'm PenguinDoDrip",
+      "x": 8.6,
+      "y": 14.1,
+      "w": 44,
+      "rot": -3,
+      "z": 5,
+      "locked": false,
+      "style": {
+        "fontSize": 72,
+        "fontFamily": "'Brush Script MT','Segoe Script',cursive",
+        "weight": 700,
+        "color": "#1d1d1d",
+        "align": "left",
+        "bg": "transparent",
+        "border": "",
+        "shadow": false
+      }
+    },
+    {
+      "id": "img-1",
+      "kind": "image",
+      "src": "assets/image-1.gif",
+      "alt": "placeholder",
+      "x": 59,
+      "y": 3.3,
+      "w": 30,
+      "rot": 4,
+      "z": 2,
+      "locked": false,
+      "style": {
+        "border": "4px solid #1d1d1d",
+        "shadow": true,
+        "bg": "#f59b51"
+      },
+      "media": {
+        "aspect": "auto",
+        "panX": -5.8,
+        "panY": -7.5,
+        "zoom": 1.15,
+        "bg": "transparent",
+        "autoplay": true,
+        "loop": true,
+        "muted": true,
+        "natW": 371,
+        "natH": 539
+      }
+    },
+    {
+      "id": "st-1",
+      "kind": "sticker",
+      "src": "assets/sticker-2.gif",
+      "alt": "sticker",
+      "x": 81.8,
+      "y": 61,
+      "w": 12,
+      "rot": -8,
+      "z": 6,
+      "locked": false,
+      "style": {
+        "bg": "trasnparent"
+      },
+      "media": {
+        "aspect": "auto",
+        "panX": 0,
+        "panY": 0,
+        "zoom": 1,
+        "bg": "transparent",
+        "autoplay": true,
+        "loop": true,
+        "muted": true,
+        "natW": 371,
+        "natH": 539
+      }
+    },
+    {
+      "id": "t-tag",
+      "kind": "text",
+      "text": "animator • programmer • genius, billionaire, playboy, philanthropist\n",
+      "x": 8,
+      "y": 62,
+      "w": 40,
+      "rot": 2,
+      "z": 4,
+      "locked": false,
+      "style": {
+        "fontSize": 28,
+        "fontFamily": "'Trebuchet MS',Verdana,sans-serif",
+        "weight": 700,
+        "color": "#1d1d1d",
+        "align": "left",
+        "bg": "#fffdf7",
+        "border": "2px solid #1d1d1d",
+        "shadow": true
+      }
+    },
+    {
+      "id": "btn-reel",
+      "kind": "button",
+      "text": "see my animations →",
+      "href": "#reel",
+      "x": 59.9,
+      "y": 68.1,
+      "w": 22,
+      "rot": -2,
+      "z": 7,
+      "locked": false,
+      "style": {
+        "fontSize": 22,
+        "bg": "transparent",
+        "border": "",
+        "shadow": false
+      }
+    }
   ],
-  projects: [
-    { id: "p1", title: "SAMPLE: Bouncy Ball Loop", desc: "Placeholder project. Swap in your real work in the editor.", thumb: ph("SAMPLE THUMB 1", "#ffd166"), preview: "", link: "", tags: ["sample", "loop"] },
-    { id: "p2", title: "SAMPLE: Dancing Teapot", desc: "Another placeholder. Replace the thumbnail and add a GIF preview.", thumb: ph("SAMPLE THUMB 2", "#b8f2e6"), preview: "", link: "", tags: ["sample", "character"] },
-    { id: "p3", title: "SAMPLE: Gravity Test", desc: "Placeholder. Delete me once your real projects are in.", thumb: ph("SAMPLE THUMB 3", "#ffadad"), preview: "", link: "", tags: ["sample"] },
+  "projects": [
+    {
+      "id": "p2",
+      "title": "Dio Pose",
+      "desc": "This is a JoJo pose i made for the mod JoJo Heaven's Arrow",
+      "thumb": "assets/project1-thumb-3.gif",
+      "preview": "assets/project1-preview-4.gif",
+      "link": "",
+      "tags": [
+        "sample",
+        "character"
+      ],
+      "media": {
+        "aspect": "auto",
+        "panX": -4,
+        "panY": -4.8,
+        "zoom": 1.1,
+        "bg": "transparent",
+        "autoplay": true,
+        "loop": true,
+        "muted": true,
+        "fit": "cover",
+        "natW": 371,
+        "natH": 539
+      }
+    },
+    {
+      "id": "p1",
+      "title": "Jotaro Pose",
+      "desc": "Here's another animation i made for JoJo Heaven's Arrow",
+      "thumb": "assets/project2-thumb-5.gif",
+      "preview": "",
+      "link": "",
+      "tags": [
+        "sample",
+        "loop"
+      ],
+      "media": {
+        "aspect": "auto",
+        "panX": 0,
+        "panY": 0,
+        "zoom": 1,
+        "bg": "transparent",
+        "autoplay": true,
+        "loop": true,
+        "muted": true,
+        "natW": 371,
+        "natH": 539
+      }
+    },
+    {
+      "id": "p3",
+      "title": "Idle Approaching Me Animation",
+      "desc": "I also made the iconic pose from the \"Approaching me\" manga panel in JoJo's",
+      "thumb": "assets/project3-thumb-6.gif",
+      "preview": "",
+      "link": "",
+      "tags": [
+        "sample"
+      ],
+      "media": {
+        "aspect": "auto",
+        "panX": 0,
+        "panY": 0,
+        "zoom": 1,
+        "bg": "transparent",
+        "autoplay": true,
+        "loop": true,
+        "muted": true,
+        "natW": 371,
+        "natH": 539
+      }
+    }
   ],
-  about: "Placeholder bio. Open owner mode and write something true about you.\nSecond paragraph goes on its own line.",
-  links: [
-    { label: "Instagram", url: "https://instagram.com/" },
-    { label: "Email", url: "mailto:you@example.com" },
-    { label: "Vimeo", url: "https://vimeo.com/" },
-  ],
+  "about": "I'm PenguinDoDrip, i'm one of the animators for JoJo Heaven's Arrow and also a programmer. I play chess every once in a while and like ",
+  "links": [
+    {
+      "label": "Youtube",
+      "url": "https://youtube.com/@PenguinDoDrip"
+    }
+  ]
 };
 /* CONTENT:END */
  
