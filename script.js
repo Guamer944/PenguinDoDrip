@@ -947,7 +947,10 @@ function applyIdentity() {
   setMeta("name", "description", id.description);
   setMeta("property", "og:title", id.shareTitle || id.title);
   setMeta("property", "og:description", id.shareDescription || id.description);
-  setMeta("property", "og:image", id.shareImage);
+  // Share images need a full address, so turn "assets/x.jpg" into https://…/assets/x.jpg.
+  if (id.shareImage && !id.shareImage.startsWith("asset:") && !id.shareImage.startsWith("data:")) {
+    setMeta("property", "og:image", new URL(id.shareImage, document.baseURI).href);
+  }
   if (id.favicon) {
     let link = document.querySelector('link[rel="icon"]');
     if (!link) {
