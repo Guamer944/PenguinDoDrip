@@ -86,7 +86,8 @@ const CONTENT = {
         "align": "left",
         "bg": "transparent",
         "border": "",
-        "shadow": false
+        "shadow": false,
+        "textShadow": true
       }
     },
     {
@@ -541,7 +542,7 @@ function applyGeometry(el, item) {
 // Font sizes are authored for a 900px-wide canvas and scale with it.
 const scaledPx = (px) => `calc(${px} * 100cqw / 900)`;
  
-function itemEl(item) {
+function itemEl(item, i = 0) {
   const el = document.createElement("div");
   const s = item.style || {};
   el.className = `item ${item.kind}${item.locked ? " locked" : ""}`;
@@ -549,7 +550,8 @@ function itemEl(item) {
   applyGeometry(el, item);
   el.style.border = s.border || "none";
   el.style.borderRadius = s.radius || "0";
-  el.style.boxShadow = s.shadow ? "6px 8px 0 #1d1d1d" : "none";
+  el.style.boxShadow = s.shadow ? "6px 8px 0 var(--ink)" : "none";
+  el.style.setProperty("--i", i); // entrance stagger order
   el.style.background = s.bg || "transparent";
   el.style.opacity = s.opacity === undefined ? 1 : s.opacity;
  
@@ -560,6 +562,7 @@ function itemEl(item) {
     el.style.fontWeight = s.weight || 400;
     el.style.color = s.color || "inherit";
     el.style.textAlign = s.align || "left";
+    el.style.textShadow = s.textShadow ? "0.045em 0.045em 0 var(--accent)" : "none";
     el.style.padding = "0.2em 0.4em";
   } else if (item.kind === "button") {
     el.innerHTML = `<a class="btn" href="${esc(item.href || "#")}" style="font-size:${scaledPx(s.fontSize || 22)}">${esc(item.text)}</a>`;
@@ -668,20 +671,32 @@ function observeReveals() {
   });
 }
 
+let lbIndex = -1;
+
 function openLightbox(pid) {
-  const p = C.projects.find((x) => x.id === pid);
+  lbIndex = C.projects.findIndex((x) => x.id === pid);
+  const p = C.projects[lbIndex];
   const box = $("#lightbox");
   if (!p || !box || typeof box.showModal !== "function") return;
   const media = p.preview
     ? previewHTML(p).replace("<video ", "<video autoplay controls ")
     : `<img src="${esc(resolveSrc(p.thumb))}" alt="${esc(p.title)}">`;
   box.querySelector(".lb-media").innerHTML = media;
+  const many = C.projects.length > 1;
+  box.querySelectorAll(".lb-nav").forEach((b) => { b.hidden = !many; });
   box.querySelector(".lb-text").innerHTML = `
+    <p class="lb-count">${String(lbIndex + 1).padStart(2, "0")} / ${String(C.projects.length).padStart(2, "0")}</p>
     <h3>${esc(p.title)}</h3>
     <p>${esc(p.desc)}</p>
     ${(p.tags || []).length ? `<div class="tags">${p.tags.map((t) => `<span>${esc(t)}</span>`).join("")}</div>` : ""}
     ${p.link ? `<p><a href="${esc(p.link)}" target="_blank" rel="noopener">watch project →</a></p>` : ""}`;
-  box.showModal();
+  if (!box.open) box.showModal();
+}
+
+function stepLightbox(dir) {
+  const n = C.projects.length;
+  if (!n || lbIndex < 0) return;
+  openLightbox(C.projects[(lbIndex + dir + n) % n].id);
 }
 
 function wireLightbox() {
@@ -690,7 +705,13 @@ function wireLightbox() {
   const close = () => { box.close(); box.querySelector(".lb-media").innerHTML = ""; };
   box.querySelector(".lb-close").addEventListener("click", close);
   box.addEventListener("click", (e) => { if (e.target === box) close(); });
-  box.addEventListener("close", () => { box.querySelector(".lb-media").innerHTML = ""; });
+  box.addEventListener("close", () => { box.querySelector(".lb-media").innerHTML = ""; lbIndex = -1; });
+  box.querySelector(".lb-prev").addEventListener("click", () => stepLightbox(-1));
+  box.querySelector(".lb-next").addEventListener("click", () => stepLightbox(1));
+  box.addEventListener("keydown", (e) => {
+    if (e.key === "ArrowLeft") stepLightbox(-1);
+    if (e.key === "ArrowRight") stepLightbox(1);
+  });
   const projects = $("#projects");
   projects.addEventListener("click", (e) => {
     if (editing || e.target.closest("a")) return;
@@ -704,12 +725,202 @@ function wireLightbox() {
   });
 }
 
+// Section titles: wrap each letter so they can animate in. Screen readers get the plain title.
+function splitHeadings() {
+  document.querySelectorAll(".h2:not([data-split])").forEach((h) => {
+    const text = h.textContent.trim();
+    h.dataset.split = "1";
+    h.setAttribute("aria-label", text);
+    h.innerHTML = [...text].map((c, i) =>
+      c === " " ? " " : `<span class="ch" aria-hidden="true" style="--i:${i}">${esc(c)}</span>`).join("");
+  });
+}
+
+function renderCta() {
+  const cta = $("#big-cta");
+  if (cta) {
+    const first = C.links[0];
+    cta.hidden = !first;
+    if (first) cta.href = first.url;
+  }
+  const mark = $("#footer-mark");
+  if (mark) mark.textContent = C.site.name;
+}
+
 function renderMarquee() {
   const track = $("#marquee");
   if (!track) return;
   const words = [C.site.name, "animation", "frame by frame", "JoJo Heaven's Arrow", "loops", "poses", "code"];
   const run = words.map((w) => `<span>${esc(w)}</span><i>✦</i>`).join("");
   track.innerHTML = run + run; // doubled so the -50% scroll loops seamlessly
+}
+
+/* ---------- Motion: intro, scroll effects, cursor, tilt, magnets, parallax ---------- */
+const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+const finePointer = matchMedia("(hover: hover) and (pointer: fine)").matches;
+
+// Short ink-curtain intro, once per tab. Skipped for owner mode and reduced motion.
+function playIntro() {
+  const root = document.documentElement;
+  let seen = false;
+  try {
+    seen = sessionStorage.getItem("pdd-intro") === "1";
+    sessionStorage.setItem("pdd-intro", "1");
+  } catch { /* storage blocked: just play it */ }
+  if (seen || reduceMotion || new URLSearchParams(location.search).has("edit")) {
+    root.classList.add("hero-in");
+    return;
+  }
+  const el = document.createElement("div");
+  el.className = "intro";
+  el.setAttribute("aria-hidden", "true");
+  el.innerHTML = `<img src="assets/menacing.png" alt=""><span>${esc(C.site.name)}</span>`;
+  document.body.append(el);
+  setTimeout(() => {
+    el.classList.add("out");
+    root.classList.add("hero-in");
+    setTimeout(() => el.remove(), 900);
+  }, 1050);
+}
+
+function wireScrollEffects() {
+  const bar = document.createElement("div");
+  bar.className = "progress";
+  bar.setAttribute("aria-hidden", "true");
+  document.body.append(bar);
+  const header = $("header.top");
+  const marqueeAnim = () => $("#marquee")?.getAnimations?.()[0];
+
+  let lastY = scrollY;
+  let queued = false;
+  let mRate = 1;
+  let mDir = 1;
+  let mTicking = false;
+
+  // Marquee speeds up with scroll speed and follows scroll direction, then eases back.
+  const marqueeTick = () => {
+    const a = marqueeAnim();
+    mRate += (1 - mRate) * 0.06;
+    if (a) a.playbackRate = mDir * mRate;
+    if (Math.abs(mRate - 1) > 0.02) requestAnimationFrame(marqueeTick);
+    else mTicking = false;
+  };
+
+  const update = () => {
+    queued = false;
+    const y = scrollY;
+    const v = y - lastY;
+    lastY = y;
+    const max = document.documentElement.scrollHeight - innerHeight;
+    bar.style.transform = `scaleX(${max > 0 ? Math.min(1, y / max) : 0})`;
+    if (!editing) header.classList.toggle("hide", y > 400 && v > 4);
+    if (v < -4 || editing) header.classList.remove("hide");
+    if (!reduceMotion && v !== 0) {
+      mDir = v < 0 ? -1 : 1;
+      mRate = Math.max(mRate, 1 + Math.min(Math.abs(v) / 6, 6));
+      if (!mTicking) { mTicking = true; requestAnimationFrame(marqueeTick); }
+    }
+  };
+  addEventListener("scroll", () => {
+    if (!queued) { queued = true; requestAnimationFrame(update); }
+  }, { passive: true });
+  update();
+
+  // Highlight the nav link for the section on screen.
+  if ("IntersectionObserver" in window) {
+    const links = [...document.querySelectorAll("header nav a")];
+    const obs = new IntersectionObserver((entries) => {
+      entries.forEach((en) => {
+        if (!en.isIntersecting) return;
+        links.forEach((a) => a.classList.toggle("active", a.getAttribute("href") === "#" + en.target.id));
+      });
+    }, { rootMargin: "-45% 0px -50% 0px" });
+    ["home", "reel", "about", "links"].forEach((id) => { const s = document.getElementById(id); if (s) obs.observe(s); });
+  }
+}
+
+function wireCursor() {
+  if (!finePointer || reduceMotion) return;
+  const ring = document.createElement("div");
+  ring.className = "cursor is-hidden";
+  ring.setAttribute("aria-hidden", "true");
+  ring.innerHTML = "<span>view</span>";
+  document.body.append(ring);
+  let x = 0, y = 0, tx = 0, ty = 0, running = false;
+  const tick = () => {
+    x += (tx - x) * 0.22;
+    y += (ty - y) * 0.22;
+    ring.style.transform = `translate(${x}px, ${y}px)`;
+    if (Math.abs(tx - x) + Math.abs(ty - y) > 0.3) requestAnimationFrame(tick);
+    else running = false;
+  };
+  addEventListener("pointermove", (e) => {
+    if (e.pointerType !== "mouse") return;
+    tx = e.clientX;
+    ty = e.clientY;
+    const hit = e.target.closest?.("a, button, .card, summary, [role=button]");
+    ring.classList.toggle("is-hover", !!hit);
+    ring.classList.toggle("is-view", !!hit && hit.classList.contains("card") && !editing);
+    ring.classList.toggle("is-hidden", !!$("#lightbox")?.open);
+    if (!running) { running = true; requestAnimationFrame(tick); }
+  }, { passive: true });
+  document.documentElement.addEventListener("pointerleave", () => ring.classList.add("is-hidden"));
+}
+
+// Cards lean toward the mouse, with a soft glare that follows it.
+function wireTilt() {
+  if (!finePointer || reduceMotion) return;
+  const projects = $("#projects");
+  projects.addEventListener("pointermove", (e) => {
+    if (editing) return;
+    const card = e.target.closest(".card");
+    if (!card) return;
+    const r = card.getBoundingClientRect();
+    const px = (e.clientX - r.left) / r.width;
+    const py = (e.clientY - r.top) / r.height;
+    card.classList.add("tilting");
+    card.style.transform = `perspective(900px) rotateX(${((0.5 - py) * 9).toFixed(2)}deg) rotateY(${((px - 0.5) * 11).toFixed(2)}deg) translate(-4px, -6px)`;
+    card.style.setProperty("--mx", `${(px * 100).toFixed(1)}%`);
+    card.style.setProperty("--my", `${(py * 100).toFixed(1)}%`);
+  });
+  projects.addEventListener("pointerout", (e) => {
+    const card = e.target.closest(".card");
+    if (!card || card.contains(e.relatedTarget)) return;
+    card.classList.remove("tilting");
+    card.style.transform = "";
+  });
+}
+
+// Buttons drift a little toward the mouse.
+function wireMagnets() {
+  if (!finePointer || reduceMotion) return;
+  let current = null;
+  addEventListener("pointermove", (e) => {
+    const m = editing ? null : e.target.closest?.(".links a, .nav-cta, .big-cta img, .lb-nav, .lb-close");
+    if (m !== current) {
+      if (current) current.style.translate = "";
+      current = m;
+    }
+    if (!m) return;
+    const r = m.getBoundingClientRect();
+    m.style.translate = `${((e.clientX - r.left - r.width / 2) * 0.25).toFixed(1)}px ${((e.clientY - r.top - r.height / 2) * 0.35).toFixed(1)}px`;
+  }, { passive: true });
+}
+
+// Hero decorations float against the mouse at different depths.
+function wireParallax() {
+  if (!finePointer || reduceMotion) return;
+  const hero = $(".hero");
+  hero.addEventListener("pointermove", (e) => {
+    if (editing) return;
+    const r = hero.getBoundingClientRect();
+    hero.style.setProperty("--px", (((e.clientX - r.left) / r.width - 0.5) * 2).toFixed(3));
+    hero.style.setProperty("--py", (((e.clientY - r.top) / r.height - 0.5) * 2).toFixed(3));
+  });
+  hero.addEventListener("pointerleave", () => {
+    hero.style.setProperty("--px", 0);
+    hero.style.setProperty("--py", 0);
+  });
 }
 
 function updateProjectSelection() {
@@ -760,11 +971,13 @@ function renderPage() {
   renderCanvas();
   $("#projects").innerHTML = C.projects.map(projectCard).join("");
   renderMarquee();
+  renderCta();
   $("#about-body").innerHTML = C.about.split("\n").filter(Boolean).map((p) => `<p>${esc(p)}</p>`).join("");
   $("#links-body").innerHTML = C.links.map((l) =>
     `<a href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.label)}</a>`).join("");
   wireCardHover();
   updateProjectSelection();
+  splitHeadings();
   observeReveals();
 }
  
@@ -1131,7 +1344,8 @@ function itemForm(it) {
       <label>Font<select ${t} data-key="style.fontFamily">${FONTS.map((f) => opt(f.value, s.fontFamily, f.label)).join("")}</select></label>
       <label>Weight<select ${t} data-key="style.weight">${[400, 700, 900].map((w) => opt(w, Number(s.weight), w)).join("")}</select></label>
       <label>Alignment<select ${t} data-key="style.align">${["left", "center", "right"].map((a) => opt(a, s.align, a)).join("")}</select></label>
-      <label>Text colour<input type="color" ${t} data-key="style.color" value="${color}"></label>` : ""}
+      <label>Text colour<input type="color" ${t} data-key="style.color" value="${color}"></label>
+      <label><input type="checkbox" ${t} data-key="style.textShadow" ${s.textShadow ? "checked" : ""}> Accent text shadow</label>` : ""}
     <label>Background (colour, or "transparent")<input ${t} data-key="style.bg" value="${esc(s.bg || "transparent")}"></label>
     <label>Border (CSS, e.g. 3px solid #1d1d1d)<input ${t} data-key="style.border" value="${esc(s.border || "")}"></label>
     <label><input type="checkbox" ${t} data-key="style.shadow" ${s.shadow ? "checked" : ""}> Hard shadow</label>
@@ -1629,6 +1843,11 @@ async function openOwnerMode() {
 function init() {
   document.documentElement.classList.add("js");
   wireLightbox();
+  wireScrollEffects();
+  wireCursor();
+  wireTilt();
+  wireMagnets();
+  wireParallax();
   const canvas = $("#canvas");
   canvas.addEventListener("pointerdown", onCanvasDown);
   canvas.addEventListener("dblclick", onCanvasDbl);
@@ -1642,6 +1861,7 @@ function init() {
   document.addEventListener("click", onAct);
  
   renderPage();
+  playIntro();
   if (new URLSearchParams(location.search).has("edit")) openOwnerMode();
 }
  

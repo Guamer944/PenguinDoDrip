@@ -34,8 +34,9 @@
   </header>
 
   <main id="top">
-    <section class="hero">
+    <section class="hero" id="home">
       <div class="hero-deco" aria-hidden="true">
+        <div class="speedlines"></div>
         <img class="menace m1" src="assets/menacing.png" alt="">
         <img class="menace m2" src="assets/menacing.png" alt="">
         <img class="menace m3" src="assets/menacing.png" alt="">
@@ -81,17 +82,26 @@
         <h2 class="h2">say hi</h2>
       </header>
       <p class="links-lead reveal">Got a project, a mod, or a pose that needs to go hard? Hit me up.</p>
+      <a id="big-cta" class="big-cta reveal" href="#links" target="_blank" rel="noopener">
+        <span class="big-cta-line">let's make</span>
+        <span class="big-cta-line">something <span class="nowrap"><em>menacing</em><img src="assets/menacing.png" alt="" aria-hidden="true"></span></span>
+      </a>
       <div id="links-body" class="links reveal"></div>
     </section>
   </main>
 
   <footer>
-    <span>© <span id="year"></span> made frame by frame</span>
-    <a href="#top">back to top ↑</a>
+    <div class="footer-mark" id="footer-mark" aria-hidden="true">PenguinDoDrip</div>
+    <div class="footer-row">
+      <span>© <span id="year"></span> made frame by frame</span>
+      <a href="#top">back to top ↑</a>
+    </div>
   </footer>
 
   <dialog id="lightbox" class="lightbox" aria-label="Project preview">
     <button class="lb-close" type="button" aria-label="Close">✕</button>
+    <button class="lb-nav lb-prev" type="button" aria-label="Previous project">←</button>
+    <button class="lb-nav lb-next" type="button" aria-label="Next project">→</button>
     <div class="lb-media"></div>
     <div class="lb-text"></div>
   </dialog>
