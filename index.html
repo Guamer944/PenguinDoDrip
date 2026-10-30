@@ -3,41 +3,97 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Animator Portfolio</title>
+  <title>PenguinDoDrip — Animator</title>
+  <meta name="description" content="Animator portfolio: loops, characters and frame-by-frame chaos.">
+  <meta name="theme-color" content="#f4eee3">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="PenguinDoDrip's Portfolio">
+  <meta property="og:description" content="Animator portfolio: loops, characters and frame-by-frame chaos.">
+  <meta property="og:image" content="assets/share-image-8.jpg">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" href="assets/favicon-7.jpg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bangers&family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,800&family=Space+Mono:wght@400;700&display=swap">
   <link rel="stylesheet" href="style.css">
   <script src="script.js" defer></script>
 </head>
 <body>
+  <a class="skip" href="#reel">skip to the reel</a>
+
   <header class="top">
-    <span id="site-name">Your Name</span>
-    <nav>
+    <a class="brand" href="#top">
+      <span class="brand-dot" aria-hidden="true"></span>
+      <span id="site-name">PenguinDoDrip</span>
+    </a>
+    <nav aria-label="Main">
       <a href="#reel">reel</a>
       <a href="#about">about</a>
-      <a href="#links">say hi</a>
+      <a href="#links" class="nav-cta">say hi</a>
     </nav>
   </header>
 
-  <main>
+  <main id="top">
     <section class="hero">
+      <div class="hero-deco" aria-hidden="true">
+        <span class="menace m1">ゴ</span>
+        <span class="menace m2">ゴ</span>
+        <span class="menace m3">ゴ</span>
+        <span class="menace m4">ゴ</span>
+        <span class="menace m5">ゴ</span>
+        <span class="menace m6">ゴ</span>
+      </div>
       <div id="canvas" class="canvas" aria-label="Hero canvas"></div>
+      <a class="scroll-hint" href="#reel" aria-label="Scroll to the reel"><span></span></a>
     </section>
 
+    <div class="marquee" aria-hidden="true">
+      <div class="marquee-track" id="marquee"></div>
+    </div>
+
     <section id="reel">
-      <h2 class="h2">the reel</h2>
+      <header class="sec-head reveal">
+        <span class="sec-num">01</span>
+        <h2 class="h2">the reel</h2>
+        <p class="sec-sub">click any card to see it big</p>
+      </header>
       <div id="projects" class="projects"></div>
     </section>
 
     <section id="about">
-      <h2 class="h2">about</h2>
-      <div id="about-body" class="about"></div>
+      <header class="sec-head reveal">
+        <span class="sec-num">02</span>
+        <h2 class="h2">about</h2>
+      </header>
+      <div class="about-wrap reveal">
+        <div id="about-body" class="about"></div>
+        <ul class="facts" aria-label="Quick facts">
+          <li><b>animator</b><span>JoJo Heaven's Arrow</span></li>
+          <li><b>programmer</b><span>builds the stuff too</span></li>
+          <li><b>chess</b><span>every once in a while</span></li>
+        </ul>
+      </div>
     </section>
 
     <section id="links">
-      <h2 class="h2">say hi</h2>
-      <div id="links-body" class="links"></div>
+      <header class="sec-head reveal">
+        <span class="sec-num">03</span>
+        <h2 class="h2">say hi</h2>
+      </header>
+      <p class="links-lead reveal">Got a project, a mod, or a pose that needs to go hard? Hit me up.</p>
+      <div id="links-body" class="links reveal"></div>
     </section>
   </main>
 
-  <footer>© <span id="year"></span> made frame by frame</footer>
+  <footer>
+    <span>© <span id="year"></span> made frame by frame</span>
+    <a href="#top">back to top ↑</a>
+  </footer>
+
+  <dialog id="lightbox" class="lightbox" aria-label="Project preview">
+    <button class="lb-close" type="button" aria-label="Close">✕</button>
+    <div class="lb-media"></div>
+    <div class="lb-text"></div>
+  </dialog>
 </body>
 </html>

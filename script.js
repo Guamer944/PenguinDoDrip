@@ -17,6 +17,9 @@ const CONFIG = {
 };
  
 const FONTS = [
+  { label: "Comic (Bangers)", value: "Bangers,Impact,'Arial Black',sans-serif" },
+  { label: "Modern (Bricolage)", value: "'Bricolage Grotesque','Trebuchet MS',Verdana,sans-serif" },
+  { label: "Typewriter (Space Mono)", value: "'Space Mono','Courier New',monospace" },
   { label: "Handwritten", value: "'Brush Script MT','Segoe Script',cursive" },
   { label: "Friendly sans", value: "'Trebuchet MS',Verdana,sans-serif" },
   { label: "Serif", value: "Georgia,'Times New Roman',serif" },
@@ -55,13 +58,13 @@ const CONTENT = {
     "shareDescription": ""
   },
   "site": {
-    "title": "Your Name — Animator",
+    "title": "PenguinDoDrip — Animator",
     "name": "PenguinDoDrip"
   },
   "theme": {
-    "bg": "#f6efe2",
-    "ink": "#1d1d1d",
-    "accent": "#ff5a36"
+    "bg": "#f4eee3",
+    "ink": "#17131f",
+    "accent": "#7a2cf5"
   },
   "canvasAspect": "16 / 10",
   "canvas": [
@@ -76,10 +79,10 @@ const CONTENT = {
       "z": 5,
       "locked": false,
       "style": {
-        "fontSize": 72,
-        "fontFamily": "'Brush Script MT','Segoe Script',cursive",
-        "weight": 700,
-        "color": "#1d1d1d",
+        "fontSize": 96,
+        "fontFamily": "Bangers,Impact,'Arial Black',sans-serif",
+        "weight": 400,
+        "color": "#17131f",
         "align": "left",
         "bg": "transparent",
         "border": "",
@@ -127,7 +130,7 @@ const CONTENT = {
       "z": 6,
       "locked": false,
       "style": {
-        "bg": "trasnparent"
+        "bg": "transparent"
       },
       "media": {
         "aspect": "auto",
@@ -191,8 +194,8 @@ const CONTENT = {
       "preview": "assets/project1-preview-4.gif",
       "link": "",
       "tags": [
-        "sample",
-        "character"
+        "jojo",
+        "pose"
       ],
       "media": {
         "aspect": "auto",
@@ -216,7 +219,7 @@ const CONTENT = {
       "preview": "",
       "link": "",
       "tags": [
-        "sample",
+        "jojo",
         "loop"
       ],
       "media": {
@@ -240,7 +243,9 @@ const CONTENT = {
       "preview": "",
       "link": "",
       "tags": [
-        "sample"
+        "jojo",
+        "idle",
+        "manga"
       ],
       "media": {
         "aspect": "auto",
@@ -256,7 +261,7 @@ const CONTENT = {
       }
     }
   ],
-  "about": "I'm PenguinDoDrip, i'm one of the animators for JoJo Heaven's Arrow and also a programmer. I play chess every once in a while and like ",
+  "about": "I'm PenguinDoDrip, one of the animators behind JoJo Heaven's Arrow, and a programmer too. I live for poses that go unreasonably hard and loops that never get old.\n\nWhen I'm not animating, I'm writing code or playing chess every once in a while.",
   "links": [
     {
       "label": "Youtube",
@@ -579,7 +584,18 @@ function renderCanvas() {
  
 const showOf = (p) => ({ title: true, desc: true, tags: true, link: true, ...(p.show || {}) });
  
-function projectCard(p) {
+// Previews can be a video or an animated image (GIF etc). Images can't go in <video>.
+const isImageSrc = (src) =>
+  typeof src === "string" && (/^data:image\//.test(src) || /\.(gif|png|jpe?g|webp|avif|svg)(\?|#|$)/i.test(src));
+
+function previewHTML(p, cls = "") {
+  const src = esc(resolveSrc(p.preview));
+  return isImageSrc(p.preview)
+    ? `<img class="preview ${cls}" src="${src}" alt="" loading="lazy" draggable="false">`
+    : `<video class="${cls}" src="${src}" muted loop playsinline></video>`;
+}
+
+function projectCard(p, i) {
   const s = p.style || {};
   const show = showOf(p);
   const above = s.textOrder === "above";
@@ -588,9 +604,9 @@ function projectCard(p) {
  
   const css = [
     p.rot !== undefined ? `--rot:${p.rot}deg` : "",
-    `border:${s.border || "2px solid var(--ink)"}`,
-    `border-radius:${s.radius || "0"}`,
-    `box-shadow:${s.shadow === false ? "none" : "6px 6px 0 var(--ink)"}`,
+    `border:${s.border || "2.5px solid var(--ink)"}`,
+    `border-radius:${s.radius || "18px"}`,
+    `--sh:${s.shadow === false ? "0px" : "6px"}`,
     `background:${s.bg || "var(--paper)"}`,
     `padding:${s.padding || "14px 14px 18px"}`,
     `opacity:${s.opacity === undefined ? 1 : s.opacity}`,
@@ -601,7 +617,7 @@ function projectCard(p) {
   const thumb = `
     <div class="thumb" style="order:${above ? 2 : 1};aspect-ratio:${frameAspectCSS(tm)}">
       <div class="media-frame" style="background:${tm.bg}">${mediaInnerHTML(thumbMedia)}</div>
-      ${p.preview ? `<video src="${esc(resolveSrc(p.preview))}" muted loop playsinline></video>` : ""}
+      ${p.preview ? previewHTML(p) : ""}
     </div>`;
  
   const title = show.title
@@ -613,7 +629,8 @@ function projectCard(p) {
     ? `<a href="${esc(p.link)}" target="_blank" rel="noopener">watch project →</a>` : "";
  
   return `
-    <article class="card" data-pid="${esc(p.id)}" style="${css}">
+    <article class="card${revealed.has(p.id) ? " in" : ""}" data-pid="${esc(p.id)}" style="${css}" tabindex="0" aria-label="Open ${esc(p.title)}">
+      <span class="card-num" aria-hidden="true">${String(i + 1).padStart(2, "0")}</span>
       ${thumb}
       <div class="card-text" style="order:${above ? 1 : 2}">${title}${desc}${tags}${link}</div>
     </article>`;
@@ -628,6 +645,73 @@ function wireCardHover() {
   });
 }
  
+/* ---------- Public-site extras: lightbox, marquee, scroll reveal ---------- */
+const revealed = new Set(); // project ids already revealed, so re-renders don't re-animate
+let revealObs = null;
+
+function observeReveals() {
+  if (!("IntersectionObserver" in window)) {
+    document.querySelectorAll(".reveal, .card").forEach((el) => el.classList.add("in"));
+    return;
+  }
+  revealObs ||= new IntersectionObserver((entries) => {
+    entries.forEach((en) => {
+      if (!en.isIntersecting) return;
+      en.target.classList.add("in");
+      if (en.target.dataset.pid) revealed.add(en.target.dataset.pid);
+      revealObs.unobserve(en.target);
+    });
+  }, { threshold: 0.12, rootMargin: "0px 0px -40px 0px" });
+  document.querySelectorAll(".reveal:not(.in), .card:not(.in)").forEach((el, i) => {
+    if (el.classList.contains("card")) el.style.setProperty("--d", `${(i % 3) * 90}ms`);
+    revealObs.observe(el);
+  });
+}
+
+function openLightbox(pid) {
+  const p = C.projects.find((x) => x.id === pid);
+  const box = $("#lightbox");
+  if (!p || !box || typeof box.showModal !== "function") return;
+  const media = p.preview
+    ? previewHTML(p).replace("<video ", "<video autoplay controls ")
+    : `<img src="${esc(resolveSrc(p.thumb))}" alt="${esc(p.title)}">`;
+  box.querySelector(".lb-media").innerHTML = media;
+  box.querySelector(".lb-text").innerHTML = `
+    <h3>${esc(p.title)}</h3>
+    <p>${esc(p.desc)}</p>
+    ${(p.tags || []).length ? `<div class="tags">${p.tags.map((t) => `<span>${esc(t)}</span>`).join("")}</div>` : ""}
+    ${p.link ? `<p><a href="${esc(p.link)}" target="_blank" rel="noopener">watch project →</a></p>` : ""}`;
+  box.showModal();
+}
+
+function wireLightbox() {
+  const box = $("#lightbox");
+  if (!box) return;
+  const close = () => { box.close(); box.querySelector(".lb-media").innerHTML = ""; };
+  box.querySelector(".lb-close").addEventListener("click", close);
+  box.addEventListener("click", (e) => { if (e.target === box) close(); });
+  box.addEventListener("close", () => { box.querySelector(".lb-media").innerHTML = ""; });
+  const projects = $("#projects");
+  projects.addEventListener("click", (e) => {
+    if (editing || e.target.closest("a")) return;
+    const card = e.target.closest(".card");
+    if (card) openLightbox(card.dataset.pid);
+  });
+  projects.addEventListener("keydown", (e) => {
+    if (editing || (e.key !== "Enter" && e.key !== " ")) return;
+    const card = e.target.closest(".card");
+    if (card && e.target === card) { e.preventDefault(); openLightbox(card.dataset.pid); }
+  });
+}
+
+function renderMarquee() {
+  const track = $("#marquee");
+  if (!track) return;
+  const words = [C.site.name, "animation", "frame by frame", "JoJo Heaven's Arrow", "loops", "poses", "code"];
+  const run = words.map((w) => `<span>${esc(w)}</span><i>✦</i>`).join("");
+  track.innerHTML = run + run; // doubled so the -50% scroll loops seamlessly
+}
+
 function updateProjectSelection() {
   document.querySelectorAll(".card").forEach((c) =>
     c.classList.toggle("sel", editing && c.dataset.pid === selectedProjectId));
@@ -675,11 +759,13 @@ function renderPage() {
  
   renderCanvas();
   $("#projects").innerHTML = C.projects.map(projectCard).join("");
+  renderMarquee();
   $("#about-body").innerHTML = C.about.split("\n").filter(Boolean).map((p) => `<p>${esc(p)}</p>`).join("");
   $("#links-body").innerHTML = C.links.map((l) =>
     `<a href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.label)}</a>`).join("");
   wireCardHover();
   updateProjectSelection();
+  observeReveals();
 }
  
 /* ============================================================
@@ -1541,6 +1627,8 @@ async function openOwnerMode() {
    INIT
    ============================================================ */
 function init() {
+  document.documentElement.classList.add("js");
+  wireLightbox();
   const canvas = $("#canvas");
   canvas.addEventListener("pointerdown", onCanvasDown);
   canvas.addEventListener("dblclick", onCanvasDbl);
