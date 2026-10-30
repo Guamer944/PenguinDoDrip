@@ -157,18 +157,16 @@ section { padding: 10vh 5vw; max-width: 1300px; margin: 0 auto; }
 .hero-deco { position: absolute; inset: 0; z-index: -1; overflow: hidden; pointer-events: none; }
 .menace {
   position: absolute;
-  font-family: var(--display);
-  color: var(--accent);
-  opacity: 0.22;
-  line-height: 1;
+  height: auto;
+  opacity: 0.85;
   animation: menace 3.2s ease-in-out infinite;
 }
-.m1 { left: 3%;  top: 8%;  font-size: 7rem; }
-.m2 { left: 9%;  top: 30%; font-size: 4.5rem; animation-delay: -0.6s; }
-.m3 { left: 47%; top: 4%;  font-size: 3.5rem; animation-delay: -1.2s; }
-.m4 { right: 3%; top: 12%; font-size: 6rem;   animation-delay: -1.8s; }
-.m5 { right: 9%; top: 40%; font-size: 4rem;   animation-delay: -2.4s; }
-.m6 { left: 40%; bottom: 6%; font-size: 5rem; animation-delay: -0.3s; }
+.m1 { left: 2%;  top: 8%;  width: 110px; rotate: -8deg; }
+.m2 { left: 9%;  top: 34%; width: 64px;  rotate: 6deg; animation-delay: -0.6s; }
+.m3 { left: 46%; top: 3%;  width: 54px;  rotate: -4deg; animation-delay: -1.2s; }
+.m4 { right: 3%; top: 10%; width: 96px;  rotate: 10deg; animation-delay: -1.8s; }
+.m5 { right: 9%; top: 42%; width: 60px;  rotate: -6deg; animation-delay: -2.4s; }
+.m6 { left: 40%; bottom: 6%; width: 76px; rotate: 4deg; animation-delay: -0.3s; }
 
 /* Hero canvas: items are positioned in % of this box */
 .canvas {
@@ -467,7 +465,7 @@ body.editing header.top { top: 62px; }
   .sec-sub { margin-left: 0; width: 100%; }
   .lightbox[open] { grid-template-columns: 1fr; }
   .scroll-hint { display: none; }
-  .menace { font-size: 3rem !important; }
+  .menace { width: 44px !important; opacity: 0.6; }
 }
 
 /* ---------- Owner editor (only exists after passphrase) ---------- */
